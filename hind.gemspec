@@ -3,12 +3,12 @@ require_relative 'lib/hind/version'
 Gem::Specification.new do |spec|
   spec.name          = "hind"
   spec.version       = Hind::VERSION
-  spec.authors       = ["Your Name"]
-  spec.email         = ["your.email@example.com"]
+  spec.authors       = ["Aboobacker MK"]
+  spec.email         = ["aboobackervyd@gmail.com"]
 
   spec.summary       = "LSIF and SCIP generator for Ruby"
   spec.description   = "A tool to generate LSIF and SCIP index files for Ruby codebases"
-  spec.homepage      = "https://github.com/yourusername/hind"
+  spec.homepage      = "https://github.com/tachyons/hind"
   spec.license       = "MIT"
   spec.required_ruby_version = Gem::Requirement.new(">= 2.7.0")
 
@@ -17,8 +17,8 @@ Gem::Specification.new do |spec|
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
-  spec.files = Dir["lib/**/*", "bin/*", "README.md", "LICENSE.txt"]
-  spec.bindir        = "bin"
+  spec.files = Dir["lib/**/*", "exe/*", "README.md", "LICENSE.txt"]
+  spec.bindir        = "exe"
   spec.executables   = ["hind"]
   spec.require_paths = ["lib"]
 
