@@ -1,0 +1,43 @@
+# .gitlab-ci.yml
+
+image: ruby:3.4
+
+variables:
+  BUNDLE_PATH: vendor/bundle
+
+cache:
+  paths:
+    - ${BUNDLE_PATH}
+
+stages:
+  - build
+  - lsif
+
+.default_rules: &default_rules
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+build:
+  stage: build
+  <<: *default_rules
+  script:
+    - bundle install
+    - gem build hind.gemspec
+  artifacts:
+    paths:
+      - "*.gem"
+    expire_in: 1 week
+
+lsif:
+  stage: lsif
+  <<: *default_rules
+  needs: ["build"]
+  script:
+    - gem install hind-*.gem
+    - hind lsif -d . -o dump.lsif -v
+  artifacts:
+    reports:
+      lsif: dump.lsif
+    expire_in: 1 week
