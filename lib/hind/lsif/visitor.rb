@@ -1,31 +1,14 @@
-# lib/hind/lsif/visitor.rb
 # frozen_string_literal: true
 
 module Hind
   module LSIF
-    class Visitor
+    class Visitor < Prism::Visitor
       def initialize(generator)
         @generator = generator
         @current_scope = []
       end
 
-      def visit(node)
-        return unless node
-
-        method_name = "visit_#{node.class.name.split("::").last.downcase}"
-        if respond_to?(method_name)
-          send(method_name, node)
-        else
-          visit_children(node)
-        end
-      end
-
-      def visit_children(node)
-        node.child_nodes.each { |child| visit(child) if child }
-      end
-
-      def visit_defnode(node)
-        # Handle method definitions
+      def visit_def_node(node)
         method_name = node.name.to_s
         qualified_name = current_scope_name.empty? ? method_name : "#{current_scope_name}##{method_name}"
 
@@ -52,10 +35,10 @@ module Hind
 
         @generator.add_to_global_state(qualified_name, result_set_id, range_id)
 
-        visit_children(node)
+        super
       end
 
-      def visit_classnode(node)
+      def visit_class_node(node)
         @current_scope.push(node.constant_path.slice)
         class_name = current_scope_name
 
@@ -91,11 +74,11 @@ module Hind
         # Handle inheritance
         visit_inheritance(node.superclass) if node.superclass
 
-        visit_children(node)
+        super
         @current_scope.pop
       end
 
-      def visit_modulenode(node)
+      def visit_module_node(node)
         @current_scope.push(node.constant_path.slice)
         module_name = current_scope_name
 
@@ -117,11 +100,11 @@ module Hind
 
         @generator.add_to_global_state(module_name, result_set_id, range_id)
 
-        visit_children(node)
+        super
         @current_scope.pop
       end
 
-      def visit_callnode(node)
+      def visit_call_node(node)
         return unless node.name && node.location
 
         method_name = node.name.to_s
@@ -132,13 +115,13 @@ module Hind
 
         # Try with receiver's type if available
         if node.receiver
-          case node.receiver
-          when Prism::ConstantReadNode
+          case node.receiver.type
+          when :constant_read
             qualified_names << "#{node.receiver.name}##{method_name}"
-          when Prism::CallNode
+          when :call
             # Handle method chaining
             qualified_names << "#{node.receiver.name}##{method_name}" if node.receiver.name
-          when Prism::InstanceVariableReadNode
+          when :instance_variable_read
             # Handle instance variable calls
             qualified_names << "#{current_scope_name}##{method_name}" if current_scope_name
           end
@@ -157,10 +140,10 @@ module Hind
           break # Stop after finding first match
         end
 
-        visit_children(node)
+        super
       end
 
-      def visit_constantreadnode(node)
+      def visit_constant_read_node(node)
         return unless node.name
 
         constant_name = node.name.to_s
@@ -171,9 +154,11 @@ module Hind
         range_id = @generator.create_range(node.location, node.location)
         @generator.global_state.add_reference(qualified_name, @generator.metadata[:uri], range_id)
         @generator.emit_edge('next', range_id, @generator.global_state.result_sets[qualified_name])
+
+        super
       end
 
-      def visit_constantwritenode(node)
+      def visit_constant_write_node(node)
         return unless node.name
 
         constant_name = node.name.to_s
@@ -197,10 +182,10 @@ module Hind
 
         @generator.add_to_global_state(qualified_name, result_set_id, range_id)
 
-        visit_children(node)
+        super
       end
 
-      def visit_instancevariablereadnode(node)
+      def visit_instance_variable_read_node(node)
         return unless node.name && current_scope_name
 
         var_name = node.name.to_s
@@ -211,9 +196,11 @@ module Hind
         range_id = @generator.create_range(node.location, node.location)
         @generator.global_state.add_reference(qualified_name, @generator.metadata[:uri], range_id)
         @generator.emit_edge('next', range_id, @generator.global_state.result_sets[qualified_name])
+
+        super
       end
 
-      def visit_instancevariablewritenode(node)
+      def visit_instance_variable_write_node(node)
         return unless node.name && current_scope_name
 
         var_name = node.name.to_s
@@ -237,7 +224,7 @@ module Hind
 
         @generator.add_to_global_state(qualified_name, result_set_id, range_id)
 
-        visit_children(node)
+        super
       end
 
       private
@@ -247,13 +234,13 @@ module Hind
       end
 
       def visit_inheritance(node)
-        case node
-        when Prism::ConstantReadNode, Prism::ConstantPathNode
+        case node.type
+        when :constant_read_node, :constant_path_node
           range_id = @generator.create_range(node.location, node.location)
-          qualified_name = case node
-          when Prism::ConstantReadNode
+          qualified_name = case node.type
+          when :constant_read_node
             node.name.to_s
-          when Prism::ConstantPathNode
+          when :constant_path_node
             node.slice
           end
 
