@@ -33,16 +33,9 @@ build:
 lsif:
   stage: lsif
   <<: *default_rules
-  needs: ["build"]
   script:
-    # Set up local gem environment
-    - mkdir -p vendor/ruby
-    - gem install --local --install-dir vendor/ruby hind-*.gem
-    - gem environment
-    - which hind
-    # Generate LSIF
+    - gem install  hind
     - hind lsif -d . -o dump.lsif -v
   artifacts:
     reports:
       lsif: dump.lsif
-    expire_in: 1 week
