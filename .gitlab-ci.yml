@@ -35,7 +35,12 @@ lsif:
   <<: *default_rules
   needs: ["build"]
   script:
-    - gem install hind-*.gem
+    # Set up local gem environment
+    - mkdir -p vendor/ruby
+    - gem install --local --install-dir vendor/ruby hind-*.gem
+    - gem environment
+    - which hind
+    # Generate LSIF
     - hind lsif -d . -o dump.lsif -v
   artifacts:
     reports:
