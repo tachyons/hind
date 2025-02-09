@@ -32,9 +32,8 @@ build:
 
 lsif:
   stage: lsif
-  <<: *default_rules
   script:
-    - gem install  hind
+    - gem install hind
     - hind lsif -d . -o dump.lsif -v
   artifacts:
     reports:
