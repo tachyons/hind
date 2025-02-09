@@ -91,7 +91,7 @@ module Hind
           }
         })
 
-        @global_state.project_id = emit_vertex('project', { kind: 'ruby' })
+        @global_state.project_id = emit_vertex('project', {kind: 'ruby'})
       end
 
       def setup_document
@@ -110,9 +110,9 @@ module Hind
         file_path = File.join(@metadata[:projectRoot], @metadata[:uri])
         ranges = @global_state.ranges[file_path]
 
-        if ranges&.any?
-          emit_edge('contains', @document_id, ranges)
-        end
+        return unless ranges&.any?
+
+        emit_edge('contains', @document_id, ranges)
       end
 
       def update_cross_file_references
@@ -150,15 +150,16 @@ module Hind
       def valid_in_v?(in_v)
         return false unless in_v
         return in_v.any? if in_v.is_a?(Array)
+
         true
       end
 
       def edge_document(label)
-        label == 'item' ? @document_id : nil
+        (label == 'item') ? @document_id : nil
       end
 
       def path_to_uri(path)
-        normalized_path = path.gsub('\\', '/')
+        normalized_path = path.tr('\\', '/')
         normalized_path = normalized_path.sub(%r{^file://}, '')
         absolute_path = File.expand_path(normalized_path)
         "file://#{absolute_path}"

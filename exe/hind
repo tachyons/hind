@@ -1,5 +1,7 @@
 #!/usr/bin/env ruby
-require "hind"
-require "hind/cli"
+# frozen_string_literal: true
+
+require 'hind'
+require 'hind/cli'
 
 Hind::CLI.start(ARGV)

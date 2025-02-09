@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Hind
   module LSIF
     class Edge
@@ -12,7 +14,7 @@ module Hind
         @document = document
       end
 
-      def to_json
+      def to_json(*_args)
         json = {
           id: @id,
           type: 'edge',

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Hind
   module LSIF
     class GlobalState
@@ -18,12 +20,12 @@ module Hind
       end
 
       def add_definition(qualified_name, file_path, range_id)
-        @definitions[qualified_name] = { file: file_path, range_id: range_id }
+        @definitions[qualified_name] = {file: file_path, range_id: range_id}
       end
 
       def add_reference(qualified_name, file_path, range_id)
         @references[qualified_name] ||= []
-        @references[qualified_name] << { file: file_path, range_id: range_id }
+        @references[qualified_name] << {file: file_path, range_id: range_id}
       end
     end
   end

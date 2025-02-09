@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Hind
   module LSIF
     class Vertex
@@ -9,7 +11,7 @@ module Hind
         @data = data
       end
 
-      def to_json
+      def to_json(*_args)
         json = {
           id: @id,
           type: 'vertex',

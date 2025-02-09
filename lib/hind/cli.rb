@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'thor'
 require 'json'
 require 'pathname'
@@ -26,7 +28,7 @@ module Hind
       begin
         generate_lsif(files, options)
         say "\nLSIF data has been written to: #{options[:output]}", :green if options[:verbose]
-      rescue StandardError => e
+      rescue => e
         abort "Error generating LSIF: #{e.message}"
       end
     end
@@ -49,7 +51,7 @@ module Hind
       begin
         generate_scip(files, options)
         say "\nSCIP data has been written to: #{options[:output]}", :green if options[:verbose]
-      rescue StandardError => e
+      rescue => e
         abort "Error generating SCIP: #{e.message}"
       end
     end
@@ -66,9 +68,7 @@ module Hind
     end
 
     def validate_output_file(output, force)
-      if File.exist?(output) && !force
-        abort "Error: Output file '#{output}' already exists. Use --force to overwrite."
-      end
+      abort "Error: Output file '#{output}' already exists. Use --force to overwrite." if File.exist?(output) && !force
 
       # Ensure output directory exists
       FileUtils.mkdir_p(File.dirname(output))
@@ -78,10 +78,8 @@ module Hind
       pattern = File.join(directory, glob)
       files = Dir.glob(pattern)
 
-      if exclude_patterns
-        exclude_patterns.each do |exclude|
-          files.reject! { |f| File.fnmatch?(exclude, f) }
-        end
+      exclude_patterns&.each do |exclude|
+        files.reject! { |f| File.fnmatch?(exclude, f) }
       end
 
       files
@@ -94,9 +92,7 @@ module Hind
 
       File.open(options[:output], 'w') do |output_file|
         files.each do |file|
-          if options[:verbose]
-            say "Processing file: #{file}", :cyan
-          end
+          say "Processing file: #{file}", :cyan if options[:verbose]
 
           relative_path = Pathname.new(file).relative_path_from(Pathname.new(options[:directory])).to_s
 
@@ -115,7 +111,7 @@ module Hind
             vertex_id = output.last[:id].to_i + 1
             output_file.puts(output.map(&:to_json).join("\n"))
             initial = false
-          rescue StandardError => e
+          rescue => e
             warn "Warning: Failed to process file '#{file}': #{e.message}"
             next
           end
@@ -124,7 +120,7 @@ module Hind
     end
 
     def generate_scip(files, options)
-      raise NotImplementedError, "SCIP generation not yet implemented"
+      raise NotImplementedError, 'SCIP generation not yet implemented'
       # Similar to generate_lsif but using SCIP generator
     end
 
@@ -133,7 +129,7 @@ module Hind
 
       begin
         YAML.load_file(config_path) || {}
-      rescue StandardError => e
+      rescue => e
         abort "Error loading config file: #{e.message}"
       end
     end
