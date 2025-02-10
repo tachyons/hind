@@ -24,6 +24,7 @@ module Hind
 
         @global_state = GlobalState.new
         @document_ids = {}
+        @current_document_id = nil
         @lsif_data = []
         @current_uri = nil
 
@@ -33,37 +34,49 @@ module Hind
       def collect_declarations(files)
         files.each do |path, content|
           @current_uri = path
-          ast = Parser.new(content).parse
-          visitor = DeclarationVisitor.new(self, path)
-          visitor.visit(ast)
+          @document_id = nil
+          @current_document_id = nil
+
+          begin
+            ast = Parser.new(content).parse
+            setup_document
+            visitor = DeclarationVisitor.new(self, path)
+            visitor.visit(ast)
+            finalize_document_state
+          rescue => e
+            warn "Warning: Failed to collect declarations from '#{path}': #{e.message}"
+          end
         end
 
-        { declarations: @global_state.declarations }
+        {declarations: @global_state.declarations}
       end
 
       def process_file(params)
-        content = params[:content]
         @current_uri = params[:uri]
+        content = params[:content]
+
+        @document_id = nil
+        @current_document_id = nil
 
         setup_document
         ast = Parser.new(content).parse
 
-        # Process declarations first to update any missing ones
-        visitor = DeclarationVisitor.new(self, @current_uri)
-        visitor.visit(ast)
-
-        # Then process references
         visitor = ReferenceVisitor.new(self, @current_uri)
         visitor.visit(ast)
 
-        finalize_document
-        @lsif_data
+        result = @lsif_data
+        finalize_document_state
+        result
       end
 
       def register_declaration(declaration)
         return unless @current_uri && declaration[:node]
 
         qualified_name = declaration[:name]
+
+        setup_document if @document_id.nil?
+        current_doc_id = @document_id
+
         range_id = create_range(declaration[:node].location, declaration[:node].location)
         return unless range_id
 
@@ -72,7 +85,8 @@ module Hind
 
         def_result_id = emit_vertex('definitionResult')
         emit_edge('textDocument/definition', result_set_id, def_result_id)
-        emit_edge('item', def_result_id, [range_id], 'definitions')
+
+        emit_edge('item', def_result_id, [range_id], 'definitions', current_doc_id)
 
         hover_content = generate_hover_content(declaration)
         hover_id = emit_vertex('hoverResult', {
@@ -88,74 +102,28 @@ module Hind
           scope: declaration[:scope],
           file: @current_uri,
           range_id: range_id,
-          result_set_id: result_set_id
+          result_set_id: result_set_id,
+          document_id: current_doc_id
         }.merge(declaration))
+
+        result_set_id
       end
 
       def register_reference(reference)
         return unless @current_uri && reference[:node]
         return unless @global_state.has_declaration?(reference[:name])
 
+        setup_document if @document_id.nil?
+        current_doc_id = @document_id
+
         range_id = create_range(reference[:node].location, reference[:node].location)
         return unless range_id
 
         declaration = @global_state.declarations[reference[:name]]
-        @global_state.add_reference(reference[:name], @current_uri, range_id)
+        return unless declaration[:result_set_id]
+
+        @global_state.add_reference(reference[:name], @current_uri, range_id, current_doc_id)
         emit_edge('next', range_id, declaration[:result_set_id])
-      end
-
-      def finalize_cross_references
-        cross_ref_data = []
-
-        @global_state.references.each do |qualified_name, references|
-          declaration = @global_state.declarations[qualified_name]
-          next unless declaration
-
-          result_set_id = declaration[:result_set_id]
-          next unless result_set_id
-
-          ref_result_id = emit_vertex('referenceResult')
-          emit_edge('textDocument/references', result_set_id, ref_result_id)
-
-          # Collect all reference range IDs
-          all_refs = references.map { |ref| ref[:range_id] }
-          all_refs << declaration[:range_id] if declaration[:range_id]
-
-          # Group references by document
-          references.group_by { |ref| ref[:file] }.each do |file_path, file_refs|
-            document_id = @document_ids[file_path]
-            next unless document_id
-
-            cross_ref_data << {
-              id: @vertex_id,
-              type: 'edge',
-              label: 'item',
-              outV: ref_result_id,
-              inVs: all_refs,
-              document: document_id,
-              property: 'references'
-            }
-            @vertex_id += 1
-          end
-
-          # Handle document containing the definition
-          def_file = declaration[:file]
-          def_document_id = @document_ids[def_file]
-          if def_document_id && references.none? { |ref| ref[:file] == def_file }
-            cross_ref_data << {
-              id: @vertex_id,
-              type: 'edge',
-              label: 'item',
-              outV: ref_result_id,
-              inVs: all_refs,
-              document: def_document_id,
-              property: 'references'
-            }
-            @vertex_id += 1
-          end
-        end
-
-        cross_ref_data
       end
 
       private
@@ -171,10 +139,11 @@ module Hind
           }
         })
 
-        @global_state.project_id = emit_vertex('project', { kind: 'ruby' })
+        @global_state.project_id = emit_vertex('project', {kind: 'ruby'})
       end
 
       def setup_document
+        return if @document_id
         return unless @current_uri
 
         file_path = File.join(@metadata[:projectRoot], @current_uri)
@@ -183,17 +152,19 @@ module Hind
           uri: path_to_uri(file_path),
           languageId: 'ruby'
         })
+
         @document_ids[@current_uri] = @document_id
+        @current_document_id = @document_id
 
         emit_edge('contains', @global_state.project_id, [@document_id]) if @global_state.project_id
       end
 
-      def finalize_document
-        return unless @current_uri
+      def finalize_document_state
+        return unless @current_uri && @document_id
 
         ranges = @global_state.get_ranges_for_file(@current_uri)
         if ranges&.any?
-          emit_edge('contains', @document_id, ranges)
+          emit_edge('contains', @document_id, ranges, nil, @document_id)
         end
       end
 
@@ -235,7 +206,7 @@ module Hind
         @vertex_id - 1
       end
 
-      def emit_edge(label, out_v, in_v, property = nil)
+      def emit_edge(label, out_v, in_v, property = nil, doc_id = nil)
         return unless out_v && valid_in_v?(in_v)
 
         edge = {
@@ -251,8 +222,10 @@ module Hind
           edge[:inV] = in_v
         end
 
-        edge[:document] = @document_id if label == 'item'
-        edge[:property] = property if property
+        if label == 'item'
+          edge[:document] = doc_id || @current_document_id
+          edge[:property] = property if property
+        end
 
         @lsif_data << edge
         @vertex_id += 1
@@ -261,11 +234,6 @@ module Hind
 
       def generate_hover_content(declaration)
         case declaration[:type]
-        when :method
-          sig = []
-          sig << "def #{declaration[:name]}"
-          sig << "(#{declaration[:params]})" if declaration[:params]
-          sig.join
         when :class
           hover = ["class #{declaration[:name]}"]
           hover << " < #{declaration[:superclass]}" if declaration[:superclass]
@@ -273,7 +241,8 @@ module Hind
         when :module
           "module #{declaration[:name]}"
         when :constant
-          "#{declaration[:name]} = ..."
+          value_info = declaration[:node].value ? " = #{declaration[:node].value.inspect}" : ''
+          "#{declaration[:name]}#{value_info}"
         else
           declaration[:name].to_s
         end
@@ -301,7 +270,7 @@ module Hind
 
       def path_to_uri(path)
         return nil unless path
-        normalized_path = path.gsub('\\', '/')
+        normalized_path = path.tr('\\', '/')
         normalized_path = normalized_path.sub(%r{^file://}, '')
         absolute_path = File.expand_path(normalized_path)
         "file://#{absolute_path}"

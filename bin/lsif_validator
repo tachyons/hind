@@ -1,0 +1,245 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'json'
+require 'optparse'
+
+class LSIFValidator
+  REQUIRED_VERTEX_FIELDS = %w[id type label].freeze
+  REQUIRED_EDGE_FIELDS = %w[id type label outV].freeze
+  VALID_VERTEX_LABELS = %w[metaData project document range resultSet definitionResult hoverResult].freeze
+  VALID_EDGE_LABELS = %w[contains next textDocument/definition textDocument/hover item].freeze
+
+  def initialize(file_path)
+    @file_path = file_path
+    @vertices = {}
+    @edges = []
+    @errors = []
+    @warnings = []
+    @stats = {
+      vertices: 0,
+      edges: 0,
+      vertex_types: Hash.new(0),
+      edge_types: Hash.new(0)
+    }
+  end
+
+  def validate
+    read_and_parse_lsif
+    return failed_result if @errors.any?
+
+    validate_structure
+    validate_references
+    validate_project_structure
+
+    {
+      valid: @errors.empty?,
+      errors: @errors,
+      warnings: @warnings,
+      stats: @stats
+    }
+  end
+
+  private
+
+  def failed_result
+    {
+      valid: false,
+      errors: @errors,
+      warnings: @warnings,
+      stats: @stats
+    }
+  end
+
+  def read_and_parse_lsif
+    File.foreach(@file_path) do |line|
+      element = JSON.parse(line)
+      process_element(element)
+    rescue JSON::ParserError
+      @errors << "Invalid JSON on line: #{line.strip}"
+    end
+  rescue Errno::ENOENT
+    @errors << "File not found: #{@file_path}"
+  rescue => e
+    @errors << "Error reading file: #{e.message}"
+  end
+
+  def process_element(element)
+    case element['type']
+    when 'vertex'
+      validate_vertex(element)
+      @vertices[element['id']] = element
+      @stats[:vertices] += 1
+      @stats[:vertex_types][element['label']] += 1
+    when 'edge'
+      validate_edge(element)
+      @edges << element
+      @stats[:edges] += 1
+      @stats[:edge_types][element['label']] += 1
+    else
+      @errors << "Invalid element type: #{element["type"]}"
+    end
+  end
+
+  def validate_vertex(vertex)
+    REQUIRED_VERTEX_FIELDS.each do |field|
+      unless vertex.key?(field)
+        @errors << "Vertex #{vertex["id"]} missing required field: #{field}"
+      end
+    end
+
+    unless VALID_VERTEX_LABELS.include?(vertex['label'])
+      @warnings << "Vertex #{vertex["id"]} has unknown label: #{vertex["label"]}"
+    end
+  end
+
+  def validate_edge(edge)
+    REQUIRED_EDGE_FIELDS.each do |field|
+      unless edge.key?(field)
+        @errors << "Edge #{edge["id"]} missing required field: #{field}"
+      end
+    end
+
+    unless VALID_EDGE_LABELS.include?(edge['label'])
+      @warnings << "Edge #{edge["id"]} has unknown label: #{edge["label"]}"
+    end
+
+    validate_edge_vertices(edge)
+  end
+
+  def validate_edge_vertices(edge)
+    if edge['inV'] && !@vertices.key?(edge['inV'])
+      @errors << "Edge #{edge["id"]} references non-existent vertex: #{edge["inV"]}"
+    end
+
+    edge['inVs']&.each do |vertex_id|
+      unless @vertices.key?(vertex_id)
+        @errors << "Edge #{edge["id"]} references non-existent vertex: #{vertex_id}"
+      end
+    end
+
+    unless @vertices.key?(edge['outV'])
+      @errors << "Edge #{edge["id"]} references non-existent vertex: #{edge["outV"]}"
+    end
+  end
+
+  def validate_references
+    @edges.each do |edge|
+      case edge['label']
+      when 'textDocument/definition', 'textDocument/hover'
+        validate_result_set_reference(edge)
+      when 'next'
+        validate_next_reference(edge)
+      end
+    end
+  end
+
+  def validate_result_set_reference(edge)
+    source = @vertices[edge['outV']]
+    target = @vertices[edge['inV']]
+
+    unless source && source['label'] == 'resultSet'
+      @errors << "Invalid source for #{edge["label"]} edge: #{edge["id"]}"
+    end
+
+    expected_target = case edge['label']
+    when 'textDocument/definition'
+      'definitionResult'
+    when 'textDocument/hover'
+      'hoverResult'
+    end
+
+    unless target && target['label'] == expected_target
+      @errors << "Invalid target for #{edge["label"]} edge: #{edge["id"]}"
+    end
+  end
+
+  def validate_next_reference(edge)
+    source = @vertices[edge['outV']]
+    target = @vertices[edge['inV']]
+
+    unless source && source['label'] == 'range'
+      @errors << "Invalid source for next edge: #{edge["id"]}"
+    end
+
+    unless target && target['label'] == 'resultSet'
+      @errors << "Invalid target for next edge: #{edge["id"]}"
+    end
+  end
+
+  def validate_project_structure
+    project_vertex = @vertices.values.find { |v| v['label'] == 'project' }
+    unless project_vertex
+      @errors << 'Missing project vertex'
+      return
+    end
+
+    metadata_vertex = @vertices.values.find { |v| v['label'] == 'metaData' }
+    unless metadata_vertex
+      @errors << 'Missing metaData vertex'
+    end
+
+    project_contains = @edges.select { |e| e['label'] == 'contains' && e['outV'] == project_vertex['id'] }
+    if project_contains.empty?
+      @warnings << 'Project vertex has no contains edges'
+    end
+  end
+end
+
+# Main script
+if __FILE__ == $PROGRAM_NAME
+  options = {}
+  OptionParser.new do |opts|
+    opts.banner = 'Usage: lsif_validator.rb [options] <lsif-file>'
+
+    opts.on('-j', '--json', 'Output in JSON format') do
+      options[:json] = true
+    end
+
+    opts.on('-h', '--help', 'Show this help message') do
+      puts opts
+      exit
+    end
+  end.parse!
+
+  if ARGV.empty?
+    puts 'Error: LSIF file path is required'
+    exit 1
+  end
+
+  validator = LSIFValidator.new(ARGV[0])
+  result = validator.validate
+
+  if options[:json]
+    puts JSON.pretty_generate(result)
+  else
+    puts "\nValidation Results:"
+    puts "Status: #{result[:valid] ? "✅ Valid" : "❌ Invalid"}"
+
+    unless result[:errors].empty?
+      puts "\nErrors:"
+      result[:errors].each { |error| puts "  • #{error}" }
+    end
+
+    unless result[:warnings].empty?
+      puts "\nWarnings:"
+      result[:warnings].each { |warning| puts "  • #{warning}" }
+    end
+
+    puts "\nStatistics:"
+    puts "  Total Vertices: #{result[:stats][:vertices]}"
+    puts "  Total Edges: #{result[:stats][:edges]}"
+
+    puts "\nVertex Types:"
+    result[:stats][:vertex_types].each do |type, count|
+      puts "  #{type}: #{count}"
+    end
+
+    puts "\nEdge Types:"
+    result[:stats][:edge_types].each do |type, count|
+      puts "  #{type}: #{count}"
+    end
+  end
+
+  exit(result[:valid] ? 0 : 1)
+end
