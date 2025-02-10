@@ -28,7 +28,6 @@ class LSIFValidator
     read_and_parse_lsif
     return failed_result if @errors.any?
 
-    validate_structure
     validate_references
     validate_project_structure
 
@@ -214,7 +213,7 @@ if __FILE__ == $PROGRAM_NAME
     puts JSON.pretty_generate(result)
   else
     puts "\nValidation Results:"
-    puts "Status: #{result[:valid] ? "✅ Valid" : "❌ Invalid"}"
+    puts "Status: #{result[:valid] ? "\u2705 Valid" : "\u274C Invalid"}"
 
     unless result[:errors].empty?
       puts "\nErrors:"

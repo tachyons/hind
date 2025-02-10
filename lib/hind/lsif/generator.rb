@@ -27,6 +27,7 @@ module Hind
         @current_document_id = nil
         @lsif_data = []
         @current_uri = nil
+        @last_vertex_id = @vertex_id
 
         initialize_project if metadata[:initial]
       end
@@ -48,12 +49,22 @@ module Hind
           end
         end
 
-        {declarations: @global_state.declarations}
+        # Store the last used vertex ID and reset reference index
+        @last_vertex_id = @vertex_id
+        @last_reference_index = @lsif_data.length
+
+        {
+          declarations: @global_state.declarations,
+          lsif_data: @lsif_data
+        }
       end
 
       def process_file(params)
         @current_uri = params[:uri]
         content = params[:content]
+
+        # Restore vertex ID from last declaration pass
+        @vertex_id = @last_vertex_id
 
         @document_id = nil
         @current_document_id = nil
@@ -64,9 +75,43 @@ module Hind
         visitor = ReferenceVisitor.new(self, @current_uri)
         visitor.visit(ast)
 
-        result = @lsif_data
         finalize_document_state
+
+        # Update last vertex ID
+        @last_vertex_id = @vertex_id
+
+        # Return only the new LSIF data since last call
+        result = @lsif_data[@last_reference_index..]
+        @last_reference_index = @lsif_data.length
         result
+      end
+
+      def get_initial_data
+        @initial_data
+      end
+
+      def finalize_references
+        # Restore vertex ID
+        @vertex_id = @last_vertex_id
+        # Process all references to create definition results
+        @global_state.references.each do |qualified_name, references|
+          declaration = @global_state.declarations[qualified_name]
+          next unless declaration && declaration[:result_set_id]
+
+          # Create reference result for this symbol
+          ref_result_id = emit_vertex('referenceResult')
+          emit_edge('textDocument/references', declaration[:result_set_id], ref_result_id)
+
+          # Group references by document
+          references_by_doc = references.group_by { |ref| ref[:document_id] }
+
+          # Create item edges for each document's references
+          references_by_doc.each do |doc_id, refs|
+            emit_edge('item', ref_result_id, refs.map { |r| r[:range_id] }, 'references', doc_id)
+          end
+        end
+
+        @lsif_data
       end
 
       def register_declaration(declaration)

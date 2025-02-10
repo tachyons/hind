@@ -68,10 +68,23 @@ module Hind
       File.open(options[:output], 'w') do |output_file|
         say 'First pass: Collecting declarations...', :cyan if options[:verbose]
 
+        # Write initial LSIF data (metadata and project vertices)
+        initial_data = generator.get_initial_data
+        if initial_data&.any?
+          say 'Writing initial LSIF data...', :cyan if options[:verbose]
+          output_file.puts(initial_data.map(&:to_json).join("\n"))
+        end
+
         # First pass: Process all files to collect declarations
         declaration_data = generator.collect_declarations(file_contents)
 
         say "Found #{declaration_data[:declarations].size} declarations (classes, modules, constants)", :cyan if options[:verbose]
+
+        # Write declaration LSIF data next
+        if declaration_data[:lsif_data]&.any?
+          output_file.puts(declaration_data[:lsif_data].map(&:to_json).join("\n"))
+        end
+
         say 'Processing files for references...', :cyan if options[:verbose]
 
         # Second pass: Process each file for references
@@ -80,13 +93,17 @@ module Hind
             say "Processing file: #{relative_path}", :cyan
           end
 
-          lsif_data = generator.process_file(
+          reference_lsif_data = generator.process_file(
             content: content,
             uri: relative_path
           )
-
-          output_file.puts(lsif_data.map(&:to_json).join("\n"))
+          output_file.puts(reference_lsif_data.map(&:to_json).join("\n"))
         end
+
+        # Finalize and write cross-file references
+        say 'Processing cross-file references...', :cyan if options[:verbose]
+        final_references = generator.finalize_references
+        output_file.puts(final_references.map(&:to_json).join("\n"))
       end
     end
 
