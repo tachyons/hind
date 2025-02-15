@@ -286,7 +286,7 @@ module Hind
         when :module
           "module #{declaration[:name]}"
         when :constant
-          value_info = declaration[:node].value.content ? " = #{declaration[:node].value.content}" : ''
+          value_info = declaration[:node].value.respond_to?(:content) ? " = #{declaration[:node].value.content}" : ''
           "#{declaration[:name]}#{value_info}"
         else
           declaration[:name].to_s
