@@ -32,24 +32,22 @@ module Hind
         initialize_project if metadata[:initial]
       end
 
-      def collect_declarations(files)
-        files.each do |path, content|
-          @current_uri = path
-          @document_id = nil
-          @current_document_id = nil
+      def collect_file_declarations(content, path)
+        @current_uri = path
+        @document_id = nil
+        @current_document_id = nil
 
-          begin
-            ast = Parser.new(content).parse
-            setup_document
-            visitor = DeclarationVisitor.new(self, path)
-            visitor.visit(ast)
-            finalize_document_state
-          rescue => e
-            warn "Warning: Failed to collect declarations from '#{path}': #{e.message}"
-          end
+        begin
+          ast = Parser.new(content).parse
+          setup_document
+          visitor = DeclarationVisitor.new(self, path)
+          visitor.visit(ast)
+          finalize_document_state
+        rescue => e
+          warn "Warning: Failed to collect declarations from '#{path}': #{e.message}"
         end
 
-        # Store the last used vertex ID and reset reference index
+        # Store the last used vertex ID and reference index
         @last_vertex_id = @vertex_id
         @last_reference_index = @lsif_data.length
 

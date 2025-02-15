@@ -49,22 +49,6 @@ module Hind
         }
       )
 
-      # Create file content map with relative paths
-      file_contents = {}
-      files.each do |file|
-        absolute_path = File.expand_path(file)
-        relative_path = Pathname.new(absolute_path)
-          .relative_path_from(Pathname.new(generator.metadata[:projectRoot]))
-          .to_s
-
-        begin
-          file_contents[relative_path] = File.read(absolute_path)
-        rescue => e
-          warn "Warning: Failed to read file '#{file}': #{e.message}"
-          next
-        end
-      end
-
       File.open(options[:output], 'w') do |output_file|
         say 'First pass: Collecting declarations...', :cyan if options[:verbose]
 
@@ -76,28 +60,54 @@ module Hind
         end
 
         # First pass: Process all files to collect declarations
-        declaration_data = generator.collect_declarations(file_contents)
+        declaration_data = {}
+        files.each do |file|
+          absolute_path = File.expand_path(file)
+          relative_path = Pathname.new(absolute_path)
+            .relative_path_from(Pathname.new(generator.metadata[:projectRoot]))
+            .to_s
 
-        say "Found #{declaration_data[:declarations].size} declarations (classes, modules, constants)", :cyan if options[:verbose]
+          begin
+            content = File.read(absolute_path)
+            file_declaration_data = generator.collect_file_declarations(content, relative_path)
+            declaration_data.merge!(file_declaration_data)
+          rescue => e
+            warn "Warning: Failed to read file '#{file}': #{e.message}"
+            next
+          end
+        end
+
+        say "Found #{declaration_data[:declarations]&.size} declarations (classes, modules, constants)", :cyan if options[:verbose]
 
         # Write declaration LSIF data next
-        if declaration_data[:lsif_data]&.any?
+        if declaration_data[:lsif_data].any?
           output_file.puts(declaration_data[:lsif_data].map(&:to_json).join("\n"))
         end
 
         say 'Processing files for references...', :cyan if options[:verbose]
 
         # Second pass: Process each file for references
-        file_contents.each do |relative_path, content|
+        files.each do |file|
+          absolute_path = File.expand_path(file)
+          relative_path = Pathname.new(absolute_path)
+            .relative_path_from(Pathname.new(generator.metadata[:projectRoot]))
+            .to_s
+
           if options[:verbose]
             say "Processing file: #{relative_path}", :cyan
           end
 
-          reference_lsif_data = generator.process_file(
-            content: content,
-            uri: relative_path
-          )
-          output_file.puts(reference_lsif_data.map(&:to_json).join("\n"))
+          begin
+            content = File.read(absolute_path)
+            reference_lsif_data = generator.process_file(
+              content: content,
+              uri: relative_path
+            )
+            output_file.puts(reference_lsif_data.map(&:to_json).join("\n"))
+          rescue => e
+            warn "Warning: Failed to read file '#{file}': #{e.message}"
+            next
+          end
         end
       end
     end
