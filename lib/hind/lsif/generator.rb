@@ -90,30 +90,6 @@ module Hind
         @initial_data
       end
 
-      def finalize_references
-        # Restore vertex ID
-        @vertex_id = @last_vertex_id
-        # Process all references to create definition results
-        @global_state.references.each do |qualified_name, references|
-          declaration = @global_state.declarations[qualified_name]
-          next unless declaration && declaration[:result_set_id]
-
-          # Create reference result for this symbol
-          ref_result_id = emit_vertex('referenceResult')
-          emit_edge('textDocument/references', declaration[:result_set_id], ref_result_id)
-
-          # Group references by document
-          references_by_doc = references.group_by { |ref| ref[:document_id] }
-
-          # Create item edges for each document's references
-          references_by_doc.each do |doc_id, refs|
-            emit_edge('item', ref_result_id, refs.map { |r| r[:range_id] }, 'references', doc_id)
-          end
-        end
-
-        @lsif_data
-      end
-
       def register_declaration(declaration)
         return unless @current_uri && declaration[:node]
 
@@ -122,7 +98,13 @@ module Hind
         setup_document if @document_id.nil?
         current_doc_id = @document_id
 
-        range_id = create_range(declaration[:node].location, declaration[:node].location)
+        range_id = if declaration[:type] == :constant_write
+          create_range(declaration[:node].name_loc)
+        elsif declaration[:type] == :module
+          create_range(declaration[:node].module_keyword_loc)
+        else
+          create_range(declaration[:node].constant_path)
+        end
         return unless range_id
 
         result_set_id = emit_vertex('resultSet')
@@ -161,7 +143,7 @@ module Hind
         setup_document if @document_id.nil?
         current_doc_id = @document_id
 
-        range_id = create_range(reference[:node].location, reference[:node].location)
+        range_id = create_range(reference[:node].location)
         return unless range_id
 
         declaration = @global_state.declarations[reference[:name]]
@@ -213,17 +195,17 @@ module Hind
         end
       end
 
-      def create_range(start_location, end_location)
-        return nil unless @current_uri && start_location && end_location
+      def create_range(location)
+        return nil unless @current_uri && location
 
         range_id = emit_vertex('range', {
           start: {
-            line: start_location.start_line - 1,
-            character: start_location.start_column
+            line: location.start_line - 1, # Convert from 1-based to 0-based numbering
+            character: location.start_column
           },
           end: {
-            line: end_location.end_line - 1,
-            character: end_location.end_column
+            line: location.end_line - 1,
+            character: location.end_column
           }
         })
 

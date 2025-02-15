@@ -99,11 +99,6 @@ module Hind
           )
           output_file.puts(reference_lsif_data.map(&:to_json).join("\n"))
         end
-
-        # Finalize and write cross-file references
-        say 'Processing cross-file references...', :cyan if options[:verbose]
-        final_references = generator.finalize_references
-        output_file.puts(final_references.map(&:to_json).join("\n"))
       end
     end
 
