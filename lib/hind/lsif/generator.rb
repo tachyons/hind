@@ -218,11 +218,11 @@ module Hind
 
         range_id = emit_vertex('range', {
           start: {
-            line: start_location.start_line,
+            line: start_location.start_line - 1,
             character: start_location.start_column
           },
           end: {
-            line: end_location.end_line,
+            line: end_location.end_line - 1,
             character: end_location.end_column
           }
         })

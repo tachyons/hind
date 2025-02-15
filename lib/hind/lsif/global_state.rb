@@ -1,3 +1,4 @@
+# lib/hind/lsif/global_state.rb
 # frozen_string_literal: true
 
 module Hind
