@@ -103,7 +103,7 @@ module Hind
         elsif declaration[:type] == :module
           create_range(declaration[:node].module_keyword_loc)
         elsif declaration[:type] == :class
-          create_range(declaration[:node].constant_path)
+          create_range(declaration[:node].constant_path.location)
         else
           create_range(declaration[:node].location)
         end
