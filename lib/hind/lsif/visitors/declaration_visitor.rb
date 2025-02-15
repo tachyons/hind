@@ -1,4 +1,3 @@
-# lib/hind/lsif/visitors/declaration_visitor.rb
 # frozen_string_literal: true
 
 module Hind
