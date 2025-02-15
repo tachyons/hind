@@ -98,10 +98,10 @@ module Hind
         setup_document if @document_id.nil?
         current_doc_id = @document_id
 
-        range_id = if declaration[:type] == :constant_write
+        range_id = if declaration[:type] == :constant
           create_range(declaration[:node].name_loc)
         elsif declaration[:type] == :module
-          create_range(declaration[:node].module_keyword_loc)
+          create_range(declaration[:node].constant_path.location)
         elsif declaration[:type] == :class
           create_range(declaration[:node].constant_path.location)
         else

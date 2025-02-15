@@ -33,8 +33,9 @@ build:
 lsif:
   stage: lsif
   script:
-    - gem install hind
-    - hind lsif -d . -o dump.lsif -v -e "./vendor/bundle/**/*"
+    - bundle install
+    - bundle exec ./exe/hind lsif -d . -o dump.lsif -v -e "./vendor/bundle/**/*"
+    - ./bin/lsif_validator dump.lsif
   artifacts:
     reports:
       lsif: dump.lsif
