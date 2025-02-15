@@ -153,6 +153,10 @@ module Hind
 
         @global_state.add_reference(reference[:name], @current_uri, range_id, current_doc_id)
         emit_edge('next', range_id, declaration[:result_set_id])
+
+        reference_result = emit_vertex('referenceResult')
+        emit_edge('textDocument/references', declaration[:result_set_id], reference_result)
+        emit_edge('item', reference_result, [range_id], 'references', @document_id)
       end
 
       private
