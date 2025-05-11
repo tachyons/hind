@@ -93,12 +93,7 @@ module Hind
       File.open(options[:output], 'w') do |output_file|
         say 'First pass: Collecting declarations...', :cyan if options[:verbose]
 
-        # Write initial LSIF data (metadata and project vertices)
-        initial_data = generator.get_initial_data
-        if initial_data&.any?
-          say 'Writing initial LSIF data...', :cyan if options[:verbose]
-          output_file.puts(initial_data.map(&:to_json).join("\n"))
-        end
+
 
         # First pass: Process all files to collect declarations
         declaration_data = { lsif_data: [] }
@@ -115,10 +110,8 @@ module Hind
           begin
             content = File.read(absolute_path)
             file_declaration_data = generator.collect_file_declarations(content, relative_path)
-
-            # Merge LSIF data
             if file_declaration_data[:lsif_data]&.any?
-              declaration_data[:lsif_data].concat(file_declaration_data[:lsif_data])
+              declaration_data[:lsif_data] = file_declaration_data[:lsif_data]
             end
           rescue => e
             warn "Warning: Failed to read file '#{file}': #{e.message}"
