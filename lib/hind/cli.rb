@@ -5,6 +5,8 @@ require 'json'
 require 'pathname'
 require 'fileutils'
 
+require_relative 'lsif/global_state'
+
 module Hind
   class CLI < Thor
     class_option :verbose, type: :boolean, aliases: '-v', desc: 'Enable verbose output'
@@ -26,6 +28,18 @@ module Hind
 
       begin
         generate_lsif(files, options)
+
+        # Add debug info from the global state
+        if options[:verbose]
+          debug_info = LSIF::GlobalState.instance.debug_info
+          say "\nGlobal State Summary:", :cyan
+          say "  Classes: #{debug_info[:classes_count]}", :cyan
+          say "  Modules: #{debug_info[:modules_count]}", :cyan
+          say "  Constants: #{debug_info[:constants_count]}", :cyan
+          say "  References: #{debug_info[:references_count]}", :cyan
+          say "  Result Sets: #{debug_info[:result_sets_count]}", :cyan
+        end
+
         say "\nLSIF data has been written to: #{options[:output]}", :green if options[:verbose]
       rescue => e
         handle_error(e, options[:verbose])
@@ -77,10 +91,10 @@ module Hind
           end
         end
 
-        say "Found #{declaration_data[:declarations]&.size} declarations (classes, modules, constants)", :cyan if options[:verbose]
+        say "Found #{LSIF::GlobalState.instance.classes.size} classes, #{LSIF::GlobalState.instance.modules.size} modules, and #{LSIF::GlobalState.instance.constants.size} constants", :cyan if options[:verbose]
 
         # Write declaration LSIF data next
-        if declaration_data[:lsif_data].any?
+        if declaration_data[:lsif_data]&.any?
           output_file.puts(declaration_data[:lsif_data].map(&:to_json).join("\n"))
         end
 

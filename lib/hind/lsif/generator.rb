@@ -7,13 +7,14 @@ require 'pathname'
 
 require_relative 'visitors/declaration_visitor'
 require_relative 'visitors/reference_visitor'
+require_relative 'global_state'
 
 module Hind
   module LSIF
     class Generator
       LSIF_VERSION = '0.4.3'
 
-      attr_reader :metadata, :global_state, :document_id, :current_uri
+      attr_reader :metadata, :document_id, :current_uri
 
       def initialize(metadata = {})
         @vertex_id = metadata[:vertex_id] || 1
@@ -22,12 +23,14 @@ module Hind
           projectRoot: File.expand_path(metadata[:projectRoot] || Dir.pwd)
         }.merge(metadata)
 
-        @global_state = GlobalState.new
+        # Reset the global state when initializing a new generator
+        GlobalState.instance.reset
         @document_ids = {}
         @current_document_id = nil
         @lsif_data = []
         @current_uri = nil
         @last_vertex_id = @vertex_id
+        @last_reference_index = 0
 
         initialize_project if metadata[:initial]
       end
@@ -52,7 +55,6 @@ module Hind
         @last_reference_index = @lsif_data.length
 
         {
-          declarations: @global_state.declarations,
           lsif_data: @lsif_data
         }
       end
@@ -88,7 +90,7 @@ module Hind
         @initial_data
       end
 
-      def register_declaration(declaration)
+      def register_class_declaration(declaration)
         return unless @current_uri && declaration[:node]
 
         qualified_name = declaration[:name]
@@ -96,15 +98,7 @@ module Hind
         setup_document if @document_id.nil?
         current_doc_id = @document_id
 
-        range_id = if declaration[:type] == :constant
-          create_range(declaration[:node].name_loc)
-        elsif declaration[:type] == :module
-          create_range(declaration[:node].constant_path.location)
-        elsif declaration[:type] == :class
-          create_range(declaration[:node].constant_path.location)
-        else
-          create_range(declaration[:node].location)
-        end
+        range_id = create_range(declaration[:node].constant_path.location)
         return unless range_id
 
         result_set_id = emit_vertex('resultSet')
@@ -115,7 +109,7 @@ module Hind
 
         emit_edge('item', def_result_id, [range_id], 'definitions', current_doc_id)
 
-        hover_content = generate_hover_content(declaration)
+        hover_content = generate_class_hover_content(declaration)
         hover_id = emit_vertex('hoverResult', {
           contents: [{
             language: 'ruby',
@@ -124,21 +118,92 @@ module Hind
         })
         emit_edge('textDocument/hover', result_set_id, hover_id)
 
-        @global_state.add_declaration(qualified_name, {
-          type: declaration[:type],
-          scope: declaration[:scope],
-          file: @current_uri,
-          range_id: range_id,
-          result_set_id: result_set_id,
-          document_id: current_doc_id
-        }.merge(declaration))
+        declaration[:range_id] = range_id
+        declaration[:result_set_id] = result_set_id
+        declaration[:document_id] = current_doc_id
+
+        GlobalState.instance.add_class(qualified_name, declaration)
+
+        result_set_id
+      end
+
+      def register_module_declaration(declaration)
+        return unless @current_uri && declaration[:node]
+
+        qualified_name = declaration[:name]
+
+        setup_document if @document_id.nil?
+        current_doc_id = @document_id
+
+        range_id = create_range(declaration[:node].constant_path.location)
+        return unless range_id
+
+        result_set_id = emit_vertex('resultSet')
+        emit_edge('next', range_id, result_set_id)
+
+        def_result_id = emit_vertex('definitionResult')
+        emit_edge('textDocument/definition', result_set_id, def_result_id)
+
+        emit_edge('item', def_result_id, [range_id], 'definitions', current_doc_id)
+
+        hover_content = generate_module_hover_content(declaration)
+        hover_id = emit_vertex('hoverResult', {
+          contents: [{
+            language: 'ruby',
+            value: hover_content
+          }]
+        })
+        emit_edge('textDocument/hover', result_set_id, hover_id)
+
+        declaration[:range_id] = range_id
+        declaration[:result_set_id] = result_set_id
+        declaration[:document_id] = current_doc_id
+
+        GlobalState.instance.add_module(qualified_name, declaration)
+
+        result_set_id
+      end
+
+      def register_constant_declaration(declaration)
+        return unless @current_uri && declaration[:node]
+
+        qualified_name = declaration[:name]
+
+        setup_document if @document_id.nil?
+        current_doc_id = @document_id
+
+        range_id = create_range(declaration[:node].name_loc)
+        return unless range_id
+
+        result_set_id = emit_vertex('resultSet')
+        emit_edge('next', range_id, result_set_id)
+
+        def_result_id = emit_vertex('definitionResult')
+        emit_edge('textDocument/definition', result_set_id, def_result_id)
+
+        emit_edge('item', def_result_id, [range_id], 'definitions', current_doc_id)
+
+        hover_content = generate_constant_hover_content(declaration)
+        hover_id = emit_vertex('hoverResult', {
+          contents: [{
+            language: 'ruby',
+            value: hover_content
+          }]
+        })
+        emit_edge('textDocument/hover', result_set_id, hover_id)
+
+        declaration[:range_id] = range_id
+        declaration[:result_set_id] = result_set_id
+        declaration[:document_id] = current_doc_id
+
+        GlobalState.instance.add_constant(qualified_name, declaration)
 
         result_set_id
       end
 
       def register_reference(reference)
         return unless @current_uri && reference[:node]
-        return unless @global_state.has_declaration?(reference[:name])
+        return unless GlobalState.instance.has_declaration?(reference[:name])
 
         setup_document if @document_id.nil?
         current_doc_id = @document_id
@@ -146,10 +211,10 @@ module Hind
         range_id = create_range(reference[:node].location)
         return unless range_id
 
-        declaration = @global_state.declarations[reference[:name]]
-        return unless declaration[:result_set_id]
+        declaration = GlobalState.instance.get_declaration(reference[:name])
+        return unless declaration && declaration[:result_set_id]
 
-        @global_state.add_reference(reference[:name], @current_uri, range_id, current_doc_id)
+        GlobalState.instance.add_reference(reference[:name], @current_uri, range_id, current_doc_id)
         emit_edge('next', range_id, declaration[:result_set_id])
 
         reference_result = emit_vertex('referenceResult')
@@ -170,7 +235,8 @@ module Hind
           }
         })
 
-        @global_state.project_id = emit_vertex('project', {kind: 'ruby'})
+        project_id = emit_vertex('project', {kind: 'ruby'})
+        GlobalState.instance.project_id = project_id
       end
 
       def setup_document
@@ -187,13 +253,13 @@ module Hind
         @document_ids[@current_uri] = @document_id
         @current_document_id = @document_id
 
-        emit_edge('contains', @global_state.project_id, [@document_id]) if @global_state.project_id
+        emit_edge('contains', GlobalState.instance.project_id, [@document_id]) if GlobalState.instance.project_id
       end
 
       def finalize_document_state
         return unless @current_uri && @document_id
 
-        ranges = @global_state.get_ranges_for_file(@current_uri)
+        ranges = GlobalState.instance.get_ranges_for_file(@current_uri)
         if ranges&.any?
           emit_edge('contains', @document_id, ranges, nil, @document_id)
         end
@@ -213,7 +279,7 @@ module Hind
           }
         })
 
-        @global_state.add_range(@current_uri, range_id)
+        GlobalState.instance.add_range(@current_uri, range_id)
         range_id
       end
 
@@ -263,20 +329,19 @@ module Hind
         @vertex_id - 1
       end
 
-      def generate_hover_content(declaration)
-        case declaration[:type]
-        when :class
-          hover = ["class #{declaration[:name]}"]
-          hover << " < #{declaration[:superclass]}" if declaration[:superclass]
-          hover.join
-        when :module
-          "module #{declaration[:name]}"
-        when :constant
-          value_info = declaration[:node].value.respond_to?(:content) ? " = #{declaration[:node].value.content}" : ''
-          "#{declaration[:name]}#{value_info}"
-        else
-          declaration[:name].to_s
-        end
+      def generate_class_hover_content(declaration)
+        hover = ["class #{declaration[:name]}"]
+        hover << " < #{declaration[:superclass]}" if declaration[:superclass]
+        hover.join
+      end
+
+      def generate_module_hover_content(declaration)
+        "module #{declaration[:name]}"
+      end
+
+      def generate_constant_hover_content(declaration)
+        value_info = declaration[:node].value.respond_to?(:content) ? " = #{declaration[:node].value.content}" : ''
+        "#{declaration[:name]}#{value_info}"
       end
 
       def format_hover_data(data)

@@ -1,21 +1,40 @@
 # frozen_string_literal: true
+require 'singleton'
 
 module Hind
   module LSIF
     class GlobalState
+      include Singleton
+
       attr_accessor :project_id
-      attr_reader :declarations, :references, :result_sets, :ranges
+      attr_reader :classes, :modules, :constants, :ranges, :references, :result_sets
 
       def initialize
-        @declarations = {}    # {qualified_name => {type:, node:, scope:, file:, range_id:, result_set_id:}}
-        @references = {}      # {qualified_name => [{file:, range_id:, type:}, ...]}
-        @result_sets = {}     # {qualified_name => result_set_id}
-        @ranges = {}          # {file_path => [range_ids]}
+        reset
+      end
+
+      def reset
+        @classes = {}     # {qualified_name => {node:, scope:, file:, range_id:, result_set_id:, superclass:}}
+        @modules = {}     # {qualified_name => {node:, scope:, file:, range_id:, result_set_id:}}
+        @constants = {}   # {qualified_name => {node:, scope:, file:, range_id:, result_set_id:, value:}}
+        @references = {}  # {qualified_name => [{file:, range_id:, document_id:}, ...]}
+        @ranges = {}      # {file_path => [range_ids]}
+        @result_sets = {} # {qualified_name => result_set_id}
         @project_id = nil
       end
 
-      def add_declaration(qualified_name, data)
-        @declarations[qualified_name] = data
+      def add_class(qualified_name, data)
+        @classes[qualified_name] = data
+        @result_sets[qualified_name] = data[:result_set_id] if data[:result_set_id]
+      end
+
+      def add_module(qualified_name, data)
+        @modules[qualified_name] = data
+        @result_sets[qualified_name] = data[:result_set_id] if data[:result_set_id]
+      end
+
+      def add_constant(qualified_name, data)
+        @constants[qualified_name] = data
         @result_sets[qualified_name] = data[:result_set_id] if data[:result_set_id]
       end
 
@@ -34,11 +53,13 @@ module Hind
       end
 
       def has_declaration?(qualified_name)
-        @declarations.key?(qualified_name)
+        @classes.key?(qualified_name) ||
+        @modules.key?(qualified_name) ||
+        @constants.key?(qualified_name)
       end
 
       def get_declaration(qualified_name)
-        @declarations[qualified_name]
+        @classes[qualified_name] || @modules[qualified_name] || @constants[qualified_name]
       end
 
       def get_references(qualified_name)
@@ -54,39 +75,39 @@ module Hind
       end
 
       def find_constant_declaration(name, current_scope)
+        # First check if the name exists exactly as provided
         return name if has_declaration?(name)
 
-        if current_scope && !current_scope.empty?
-          qualified_name = "#{current_scope}::#{name}"
-          return qualified_name if has_declaration?(qualified_name)
+        return nil unless current_scope && !current_scope.empty?
 
-          scope_parts = current_scope.split('::')
-          while scope_parts.any?
-            scope_parts.pop
-            qualified_name = scope_parts.empty? ? name : "#{scope_parts.join("::")}::#{name}"
-            return qualified_name if has_declaration?(qualified_name)
-          end
+        # Try with the full current scope
+        qualified_name = "#{current_scope}::#{name}"
+        return qualified_name if has_declaration?(qualified_name)
+
+        # Try with parent scopes by progressively removing the innermost scope
+        scope_parts = current_scope.split('::')
+        while scope_parts.size > 0
+          scope_parts.pop
+          current_scope = scope_parts.join('::')
+
+          # For empty scope, just check the name directly
+          qualified_name = current_scope.empty? ? name : "#{current_scope}::#{name}"
+          return qualified_name if has_declaration?(qualified_name)
         end
 
-        has_declaration?(name) ? name : nil
+        # Not found in any scope
+        nil
       end
 
       def debug_info
         {
-          declarations_count: @declarations.size,
+          classes_count: @classes.size,
+          modules_count: @modules.size,
+          constants_count: @constants.size,
           references_count: @references.values.sum(&:size),
           result_sets_count: @result_sets.size,
-          ranges_count: @ranges.values.sum(&:size),
-          declaration_types: declaration_types_count
+          ranges_count: @ranges.values.sum(&:size)
         }
-      end
-
-      private
-
-      def declaration_types_count
-        @declarations.values.each_with_object(Hash.new(0)) do |decl, counts|
-          counts[decl[:type]] += 1
-        end
       end
     end
   end
