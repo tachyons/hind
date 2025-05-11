@@ -31,6 +31,7 @@ module Hind
         @current_uri = nil
         @last_vertex_id = @vertex_id
         @last_reference_index = 0
+        @initial_data = []
 
         initialize_project if metadata[:initial]
       end
@@ -41,10 +42,10 @@ module Hind
         @current_document_id = nil
 
         begin
-          ast = Parser.new(content).parse
+          ast = Prism.parse(content)
           setup_document
           visitor = DeclarationVisitor.new(self, path)
-          visitor.visit(ast)
+          visitor.visit(ast.value)
           finalize_document_state
         rescue => e
           warn "Warning: Failed to collect declarations from '#{path}': #{e.message}"
@@ -70,10 +71,10 @@ module Hind
         @current_document_id = nil
 
         setup_document
-        ast = Parser.new(content).parse
+        ast = Prism.parse(content)
 
         visitor = ReferenceVisitor.new(self, @current_uri)
-        visitor.visit(ast)
+        visitor.visit(ast.value)
 
         finalize_document_state
 
@@ -121,6 +122,7 @@ module Hind
         declaration[:range_id] = range_id
         declaration[:result_set_id] = result_set_id
         declaration[:document_id] = current_doc_id
+        declaration[:file] = @current_uri
 
         GlobalState.instance.add_class(qualified_name, declaration)
 
@@ -158,6 +160,7 @@ module Hind
         declaration[:range_id] = range_id
         declaration[:result_set_id] = result_set_id
         declaration[:document_id] = current_doc_id
+        declaration[:file] = @current_uri
 
         GlobalState.instance.add_module(qualified_name, declaration)
 
@@ -195,6 +198,7 @@ module Hind
         declaration[:range_id] = range_id
         declaration[:result_set_id] = result_set_id
         declaration[:document_id] = current_doc_id
+        declaration[:file] = @current_uri
 
         GlobalState.instance.add_constant(qualified_name, declaration)
 
@@ -211,6 +215,7 @@ module Hind
         range_id = create_range(reference[:node].location)
         return unless range_id
 
+        # Get the primary declaration for this reference
         declaration = GlobalState.instance.get_declaration(reference[:name])
         return unless declaration && declaration[:result_set_id]
 
@@ -225,7 +230,7 @@ module Hind
       private
 
       def initialize_project
-        emit_vertex('metaData', {
+        metadata_vertex = emit_vertex('metaData', {
           version: LSIF_VERSION,
           projectRoot: path_to_uri(@metadata[:projectRoot]),
           positionEncoding: 'utf-16',
@@ -237,6 +242,9 @@ module Hind
 
         project_id = emit_vertex('project', {kind: 'ruby'})
         GlobalState.instance.project_id = project_id
+
+        # Store initial data separately
+        @initial_data = @lsif_data.dup
       end
 
       def setup_document
