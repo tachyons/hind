@@ -6,28 +6,30 @@ require 'pathname'
 require 'fileutils'
 
 require_relative 'lsif/global_state'
+require_relative 'lsif/generator'
+require_relative 'scip/generator'
 
 module Hind
   class CLI < Thor
     class_option :verbose, type: :boolean, aliases: '-v', desc: 'Enable verbose output'
 
-    desc 'lsif', 'Generate LSIF index for Ruby classes, modules, and constants'
-    method_option :directory, type: :string, aliases: '-d', default: '.', desc: 'Root directory to process'
+    desc 'lsif [DIRECTORY]', 'Generate LSIF index for Ruby classes, modules, and constants'
+    method_option :directory, type: :string, aliases: '-d', desc: 'Root directory to process (deprecated, use positional argument)'
     method_option :output, type: :string, aliases: '-o', default: 'dump.lsif', desc: 'Output file path'
     method_option :glob, type: :string, aliases: '-g', default: '**/*.rb', desc: 'File pattern to match'
     method_option :force, type: :boolean, aliases: '-f', desc: 'Overwrite output file if it exists'
     method_option :exclude, type: :array, aliases: '-e', desc: 'Patterns to exclude'
-    def lsif
-      validate_directory(options[:directory])
+    def lsif(dir = options[:directory] || '.')
+      validate_directory(dir)
       validate_output_file(options[:output], options[:force])
 
-      files = find_files(options[:directory], options[:glob], options[:exclude])
-      abort "No files found matching pattern '#{options[:glob]}'" if files.empty?
+      files = find_files(dir, options[:glob], options[:exclude])
+      abort "No files found matching pattern '#{options[:glob]}' in #{dir}" if files.empty?
 
-      say "Found #{files.length} files to process", :green if options[:verbose]
+      say "Found #{files.length} files to process in #{dir}", :green if options[:verbose]
 
       begin
-        generate_lsif(files, options)
+        generate_lsif(files, dir, options)
 
         # Add debug info from the global state
         if options[:verbose]
@@ -41,7 +43,7 @@ module Hind
 
           # Report on the most frequently reopened classes/modules
           if debug_info[:open_classes_count] > 0
-            most_opened_classes = GlobalState.instance.classes
+            most_opened_classes = LSIF::GlobalState.instance.classes
               .map { |name, data| [name, data[:definitions].size] }
               .select { |_, count| count > 1 }
               .sort_by { |_, count| -count }
@@ -73,6 +75,28 @@ module Hind
       end
     end
 
+    desc 'scip [DIRECTORY]', 'Generate SCIP index'
+    method_option :directory, type: :string, aliases: '-d', desc: 'Root directory to process (deprecated, use positional argument)'
+    method_option :output, type: :string, aliases: '-o', default: 'index.scip', desc: 'Output file path'
+    method_option :glob, type: :string, aliases: '-g', default: '**/*.rb', desc: 'File pattern to match'
+    method_option :force, type: :boolean, aliases: '-f', desc: 'Overwrite output file if it exists'
+    method_option :exclude, type: :array, aliases: '-e', desc: 'Patterns to exclude'
+    def scip(dir = options[:directory] || '.')
+      validate_directory(dir)
+      validate_output_file(options[:output], options[:force])
+      
+      files = find_files(dir, options[:glob], options[:exclude])
+      abort "No files found matching pattern '#{options[:glob]}' in #{dir}" if files.empty?
+
+      say "Found #{files.length} files to process in #{dir}", :green if options[:verbose]
+
+      generator = Hind::SCIP::Generator.new(File.expand_path(dir))
+      index = generator.execute(files)
+      
+      File.write(options[:output], index.to_proto, mode: 'wb')
+      say "SCIP index written to #{options[:output]}", :green
+    end
+
     desc 'version', 'Show version'
     def version
       say "Hind version #{Hind::VERSION}"
@@ -80,84 +104,26 @@ module Hind
 
     private
 
-    def generate_lsif(files, options)
+    def generate_lsif(files, directory, options)
       # Initialize generator with absolute project root
       generator = Hind::LSIF::Generator.new(
         {
           vertex_id: 1,
-          initial: true,
-          projectRoot: File.expand_path(options[:directory])
+          projectRoot: File.expand_path(directory)
         }
       )
 
       File.open(options[:output], 'w') do |output_file|
-        say 'First pass: Collecting declarations...', :cyan if options[:verbose]
+        say 'Processing files...', :cyan if options[:verbose]
 
-
-
-        # First pass: Process all files to collect declarations
-        declaration_data = { lsif_data: [] }
-        files.each_with_index do |file, index|
-          absolute_path = File.expand_path(file)
-          relative_path = Pathname.new(absolute_path)
-            .relative_path_from(Pathname.new(generator.metadata[:projectRoot]))
-            .to_s
-
-          if options[:verbose] && (index % 50 == 0 || index == files.size - 1)
-            say "Processing declarations: #{index + 1}/#{files.size} files", :cyan
-          end
-
-          begin
-            content = File.read(absolute_path)
-            file_declaration_data = generator.collect_file_declarations(content, relative_path)
-            if file_declaration_data[:lsif_data]&.any?
-              declaration_data[:lsif_data] = file_declaration_data[:lsif_data]
-            end
-          rescue => e
-            warn "Warning: Failed to read file '#{file}': #{e.message}"
-            next
-          end
-        end
+        lsif_data = generator.execute(files, options)
 
         # Get counts from global state
         if options[:verbose]
           say "Found #{LSIF::GlobalState.instance.classes.size} classes, #{LSIF::GlobalState.instance.modules.size} modules, and #{LSIF::GlobalState.instance.constants.size} constants", :cyan
         end
 
-        # Write declaration LSIF data
-        if declaration_data[:lsif_data].any?
-          output_file.puts(declaration_data[:lsif_data].map(&:to_json).join("\n"))
-        end
-
-        say 'Processing files for references...', :cyan if options[:verbose]
-
-        # Second pass: Process each file for references
-        files.each_with_index do |file, index|
-          absolute_path = File.expand_path(file)
-          relative_path = Pathname.new(absolute_path)
-            .relative_path_from(Pathname.new(generator.metadata[:projectRoot]))
-            .to_s
-
-          if options[:verbose] && (index % 50 == 0 || index == files.size - 1)
-            say "Processing references: #{index + 1}/#{files.size} files", :cyan
-          end
-
-          begin
-            content = File.read(absolute_path)
-            reference_lsif_data = generator.process_file(
-              content: content,
-              uri: relative_path
-            )
-
-            # Write reference LSIF data in chunks to avoid memory issues with large codebases
-            if reference_lsif_data&.any?
-              output_file.puts(reference_lsif_data.map(&:to_json).join("\n"))
-            end
-          rescue => e
-            warn "Warning: Failed to process file '#{file}': #{e.message}"
-            next
-          end
-        end
+        output_file.puts(lsif_data.map(&:to_json).join("\n"))
       end
     end
 
@@ -176,7 +142,12 @@ module Hind
 
     def find_files(directory, glob, exclude_patterns)
       pattern = File.join(directory, glob)
-      files = Dir.glob(pattern)
+      absolute_directory = File.expand_path(directory)
+      
+      files = Dir.glob(pattern).map do |file|
+        # Return relative path to the directory for indexing
+        Pathname.new(File.expand_path(file)).relative_path_from(Pathname.new(absolute_directory)).to_s
+      end
 
       exclude_patterns&.each do |exclude|
         files.reject! { |f| File.fnmatch?(exclude, f) }

@@ -39,13 +39,8 @@ module Hind
       end
 
       def visit_constant_path_node(node)
-        qualified_name = node.slice
-        @generator.register_reference({
-          type: :constant,
-          name: qualified_name,
-          node: node,
-          scope: current_scope_name
-        })
+        # Skip creating a range for the whole path to avoid overlaps with parts.
+        # Instead, just visit the components (parent and child).
         super
       end
 

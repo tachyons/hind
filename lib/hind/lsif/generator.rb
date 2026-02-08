@@ -32,61 +32,76 @@ module Hind
         @last_vertex_id = @vertex_id
         @last_reference_index = 0
         @initial_data = []
-
-        initialize_project if metadata[:initial]
+        @initial_data_emitted = false
       end
 
-      def collect_file_declarations(content, path)
-        @current_uri = path
-        @document_id = nil
-        @current_document_id = nil
-
-        begin
-          ast = Prism.parse(content)
-          setup_document
-          visitor = DeclarationVisitor.new(self, path)
-          visitor.visit(ast.value)
-          finalize_document_state
-        rescue => e
-          warn "Warning: Failed to collect declarations from '#{path}': #{e.message}"
+      def execute(files, options)
+        # We need to ensure metadata/project vertices are the very first ones.
+        # If we collect declarations first, we might emit vertices.
+        # So we should initialize project first.
+        
+        unless @initial_data_emitted
+           initialize_project
+           @initial_data_emitted = true
+           # Ensure these are at the start of @lsif_data
+           # specific logic: if we just added them, they are at the end (idx 0 if empty)
+           # but if we called collect_declarations separately?
+           # Actually, execute is the main entry point. @lsif_data is empty approx.
         end
 
-        # Store the last used vertex ID and reference index
-        @last_vertex_id = @vertex_id
-        @last_reference_index = @lsif_data.length
+        # First pass: Declarations
+        files.each do |file|
+          @document_id = nil # Reset for each file
+          absolute_path = File.join(@metadata[:projectRoot], file)
+          next unless File.exist?(absolute_path)
+          
+          source = File.read(absolute_path)
+          collect_file_declarations(source, file)
+        end
 
-        {
-          lsif_data: @lsif_data
-        }
-      end
-
-      def process_file(params)
-        @current_uri = params[:uri]
-        content = params[:content]
-
-        # Restore vertex ID from last declaration pass
-        @vertex_id = @last_vertex_id
-
-        @document_id = nil
-        @current_document_id = nil
-
-        setup_document
-        ast = Prism.parse(content)
-
-        visitor = ReferenceVisitor.new(self, @current_uri)
-        visitor.visit(ast.value)
-
+        # Second pass: References
+        files.each do |file|
+          @document_id = nil # Reset for each file
+          absolute_path = File.join(@metadata[:projectRoot], file)
+          next unless File.exist?(absolute_path)
+          
+          source = File.read(absolute_path)
+          process_file(content: source, uri: file)
+        end
+        
         finalize_document_state
-
-        # Update last vertex ID
-        @last_vertex_id = @vertex_id
-
-        # Return only the new LSIF data since last call
-        result = @lsif_data[@last_reference_index..]
-        @last_reference_index = @lsif_data.length
-        result
+        
+        @lsif_data
       end
 
+      def collect_file_declarations(content, uri)
+        @current_uri = uri
+        result = Prism.parse(content)
+        
+        declaration_visitor = DeclarationVisitor.new(self, uri)
+        result.value.accept(declaration_visitor)
+        
+        { lsif_data: @lsif_data - @initial_data }
+      ensure
+        @current_uri = nil
+      end
+
+      def process_file(content:, uri:)
+        @current_uri = uri
+        setup_document if @document_id.nil? || @document_ids[uri].nil?
+        @document_id = @document_ids[uri]
+        @current_document_id = @document_id
+        
+        result = Prism.parse(content)
+        
+        reference_visitor = ReferenceVisitor.new(self, uri)
+        result.value.accept(reference_visitor)
+        
+        finalize_document_state
+        @lsif_data
+      ensure
+        @current_uri = nil
+      end
       def get_initial_data
         @initial_data
       end
@@ -248,7 +263,10 @@ module Hind
       end
 
       def setup_document
-        return if @document_id
+        if @document_ids[@current_uri]
+          @document_id = @document_ids[@current_uri]
+          return
+        end
         return unless @current_uri
 
         file_path = File.join(@metadata[:projectRoot], @current_uri)

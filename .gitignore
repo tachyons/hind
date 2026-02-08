@@ -12,3 +12,8 @@
 
 *.gem
 *.lsif
+*.scip
+*.snapshot/
+*.log
+debug_proto.rb
+generate_index.rb

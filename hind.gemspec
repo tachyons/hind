@@ -27,6 +27,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'prism', '~> 0.19.0'
   spec.add_dependency 'thor', '~> 1.2'
   spec.add_dependency 'zeitwerk', '~> 2.6'
+  spec.add_dependency 'google-protobuf', '~> 3.0'
 
   spec.add_development_dependency 'bundler', '~> 2.0'
   spec.add_development_dependency 'rake', '~> 13.0'

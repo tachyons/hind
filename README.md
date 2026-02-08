@@ -18,6 +18,10 @@ gem 'hind'
 
 ## Usage
 
+### GitLab CI Integration
+
+See [GitLab CI Integration Guide](docs/gitlab_ci.md) for detailed instructions.
+
 ### Generating LSIF Data
 
 To generate LSIF data for your Ruby project:
@@ -38,6 +42,16 @@ hind lsif -e "test/**/*" -e "spec/**/*"
 # Verbose output
 hind lsif -v
 ```
+
+### Generating SCIP Data
+
+To generate SCIP data for your Ruby project:
+
+```bash
+hind scip
+```
+
+This will produce an `index.scip` file which is a JSON serialization of the SCIP index.
 
 Options:
 - `-d, --directory DIR` - Root directory to process (default: current directory)
@@ -99,6 +113,25 @@ bundle exec rspec
 ```bash
 bundle exec bin/hind
 ```
+
+## Roadmap / TODO
+
+The following features are planned for future releases to improve indexing fidelity and performance:
+
+- **Ruby Semantic Fidelity**
+  - [ ] Ancestor Chain Resolution (`include`, `extend`, `prepend`)
+  - [ ] Local Variables & Method Parameters
+  - [ ] Dynamic Method Support (`attr_accessor`, `delegate`, etc.)
+  - [ ] Block & Lambda Scopes
+- **External Dependencies**
+  - [ ] External Gem Resolution (linking to symbols in dependencies)
+  - [ ] Core & Standard Library Linking
+- **Advanced SCIP/LSIF Features**
+  - [ ] SCIP Relationships (implementation/inheritance edges)
+  - [ ] LSIF Monikers for cross-repo resolution
+- **Performance**
+  - [ ] Parallel Processing for large codebases
+  - [ ] Incremental Indexing
 
 ## Contributing
 
