@@ -280,7 +280,57 @@ module Hind
         end
 
         def visit_call_node(node)
-          return if @mode == :index
+          # Handle attr_accessor, attr_reader, attr_writer
+          if node.receiver.nil? && %w[attr_reader attr_writer attr_accessor].include?(node.name.to_s)
+            helpers = node.arguments&.arguments || []
+            helpers.each do |arg|
+              next unless arg.is_a?(Prism::SymbolNode)
+              
+              name = arg.value
+              if %w[attr_reader attr_accessor].include?(node.name.to_s)
+                # Getter
+                getter_name = scip_name(name)
+                qualified_name = "#{current_scope_name}##{name}"
+                suffix = @current_scope.empty? ? '' : '#'
+                symbol = "#{@package_prefix}#{@current_scope.join("#")}#{suffix}#{getter_name}."
+
+                if @mode == :index
+                  GlobalState.instance.add_symbol(qualified_name, symbol)
+                  GlobalState.instance.add_symbol("##{name}", symbol)
+                else
+                  range = [arg.location.start_line - 1, arg.location.start_column, arg.location.end_column]
+                  @occurrences << Occurrence.new(range: range, symbol: symbol, symbol_roles: 1, syntax_kind: SyntaxKind::Identifier)
+                  unless GlobalState.instance.emitted?(symbol)
+                    @symbols << SymbolInformation.new(symbol: symbol, documentation: ["attr_reader #{name}"], kind: SymbolInformation::Kind::Method)
+                    GlobalState.instance.mark_emitted(symbol)
+                  end
+                end
+              end
+
+              if %w[attr_writer attr_accessor].include?(node.name.to_s)
+                # Setter
+                setter_name = "#{name}="
+                escaped_setter = scip_name(setter_name)
+                qualified_name = "#{current_scope_name}##{setter_name}"
+                suffix = @current_scope.empty? ? '' : '#'
+                symbol = "#{@package_prefix}#{@current_scope.join("#")}#{suffix}#{escaped_setter}."
+
+                if @mode == :index
+                  GlobalState.instance.add_symbol(qualified_name, symbol)
+                  GlobalState.instance.add_symbol("##{setter_name}", symbol)
+                else
+                  range = [arg.location.start_line - 1, arg.location.start_column, arg.location.end_column]
+                  @occurrences << Occurrence.new(range: range, symbol: symbol, symbol_roles: 1, syntax_kind: SyntaxKind::Identifier)
+                  unless GlobalState.instance.emitted?(symbol)
+                    @symbols << SymbolInformation.new(symbol: symbol, documentation: ["attr_writer #{name}"], kind: SymbolInformation::Kind::Method)
+                    GlobalState.instance.mark_emitted(symbol)
+                  end
+                end
+              end
+            end
+          end
+
+          return super if @mode == :index
 
           # Skip common methods
           return super if %w[new puts p print].include?(node.name.to_s)

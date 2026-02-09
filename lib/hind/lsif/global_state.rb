@@ -18,6 +18,7 @@ module Hind
         @classes = {}     # {qualified_name => {definitions: [{node:, scope:, file:, range_id:, result_set_id:, superclass:}]}}
         @modules = {}     # {qualified_name => {definitions: [{node:, scope:, file:, range_id:, result_set_id:}]}}
         @constants = {}   # {qualified_name => {node:, scope:, file:, range_id:, result_set_id:, value:}}
+        @methods = {}     # {qualified_name => {node:, scope:, file:, range_id:, result_set_id:}}
         @references = {}  # {qualified_name => [{file:, range_id:, document_id:}, ...]}
         @ranges = {}      # {file_path => [range_ids]}
         @range_cache = {} # {file_path => {[start_line, start_col, end_line, end_col] => range_id}}
@@ -58,6 +59,11 @@ module Hind
         @result_sets[qualified_name] = data[:result_set_id] if data[:result_set_id]
       end
 
+      def add_method(qualified_name, data)
+        @methods[qualified_name] = data
+        @result_sets[qualified_name] = data[:result_set_id] if data[:result_set_id]
+      end
+
       def add_reference(qualified_name, file_path, range_id, document_id)
         @references[qualified_name] ||= []
         @references[qualified_name] << {
@@ -87,7 +93,8 @@ module Hind
       def has_declaration?(qualified_name)
         @classes.key?(qualified_name) ||
           @modules.key?(qualified_name) ||
-          @constants.key?(qualified_name)
+          @constants.key?(qualified_name) ||
+          @methods.key?(qualified_name)
       end
 
       def get_declaration(qualified_name)
@@ -95,8 +102,10 @@ module Hind
           determine_primary_class_definition(qualified_name)
         elsif @modules.key?(qualified_name)
           determine_primary_module_definition(qualified_name)
-        else
+        elsif @constants.key?(qualified_name)
           @constants[qualified_name]
+        else
+          @methods[qualified_name]
         end
       end
 
@@ -112,29 +121,39 @@ module Hind
         @ranges[file_path] || []
       end
 
-      def find_constant_declaration(name, current_scope)
+      def find_declaration(name, current_scope)
+        # Handle both constants (::) and methods (#)
+        is_method = name.start_with?('#')
+        
         # First check if the name exists exactly as provided
         return name if has_declaration?(name)
 
         return nil unless current_scope && !current_scope.empty?
 
         # Try with the full current scope
-        qualified_name = "#{current_scope}::#{name}"
+        sep = is_method ? '' : '::'
+        qualified_name = "#{current_scope}#{sep}#{name}"
         return qualified_name if has_declaration?(qualified_name)
 
         # Try with parent scopes by progressively removing the innermost scope
         scope_parts = current_scope.split('::')
         while scope_parts.size > 0
           scope_parts.pop
-          current_scope = scope_parts.join('::')
+          prefix = scope_parts.join('::')
 
-          # For empty scope, just check the name directly
-          qualified_name = current_scope.empty? ? name : "#{current_scope}::#{name}"
+          qualified_name = prefix.empty? ? name : "#{prefix}#{sep}#{name}"
+          # Strip leading # if we ended up with just "#foo" (simple name)
+          qualified_name = name if prefix.empty? && is_method
+          
           return qualified_name if has_declaration?(qualified_name)
         end
 
         # Not found in any scope
         nil
+      end
+
+      def find_constant_declaration(name, current_scope)
+        find_declaration(name, current_scope)
       end
 
       def debug_info

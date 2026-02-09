@@ -223,6 +223,44 @@ module Hind
         result_set_id
       end
 
+      def register_method_declaration(declaration)
+        return unless @current_uri && declaration[:node]
+
+        qualified_name = declaration[:name]
+
+        setup_document if @document_id.nil?
+        current_doc_id = @document_id
+
+        loc = declaration[:node].respond_to?(:name_loc) ? declaration[:node].name_loc : declaration[:node].location
+        range_id = create_range(loc)
+        return unless range_id
+
+        result_set_id = emit_vertex('resultSet')
+        emit_edge('next', range_id, result_set_id)
+
+        def_result_id = emit_vertex('definitionResult')
+        emit_edge('textDocument/definition', result_set_id, def_result_id)
+
+        emit_edge('item', def_result_id, [range_id], 'definitions', current_doc_id)
+
+        hover_id = emit_vertex('hoverResult', {
+          contents: [{
+            language: 'ruby',
+            value: "def #{declaration[:name].split('#').last}"
+          }]
+        })
+        emit_edge('textDocument/hover', result_set_id, hover_id)
+
+        declaration[:range_id] = range_id
+        declaration[:result_set_id] = result_set_id
+        declaration[:document_id] = current_doc_id
+        declaration[:file] = @current_uri
+
+        GlobalState.instance.add_method(qualified_name, declaration)
+
+        result_set_id
+      end
+
       def register_reference(reference)
         return unless @current_uri && reference[:node]
         return unless GlobalState.instance.has_declaration?(reference[:name])
