@@ -115,7 +115,8 @@ module Hind
         setup_document if @document_id.nil?
         current_doc_id = @document_id
 
-        range_id = create_range(declaration[:node].constant_path.location)
+        range_location = declaration[:range_location] || declaration[:node].constant_path.location
+        range_id = create_range(range_location)
         return unless range_id
 
         result_set_id = emit_vertex('resultSet')
@@ -153,7 +154,8 @@ module Hind
         setup_document if @document_id.nil?
         current_doc_id = @document_id
 
-        range_id = create_range(declaration[:node].constant_path.location)
+        range_location = declaration[:range_location] || declaration[:node].constant_path.location
+        range_id = create_range(range_location)
         return unless range_id
 
         result_set_id = emit_vertex('resultSet')
@@ -295,6 +297,9 @@ module Hind
       def create_range(location)
         return nil unless @current_uri && location
 
+        cached_id = GlobalState.instance.find_range_id(@current_uri, location)
+        return cached_id if cached_id
+
         range_id = emit_vertex('range', {
           start: {
             line: location.start_line - 1, # Convert from 1-based to 0-based numbering
@@ -306,7 +311,7 @@ module Hind
           }
         })
 
-        GlobalState.instance.add_range(@current_uri, range_id)
+        GlobalState.instance.add_range(@current_uri, range_id, location)
         range_id
       end
 

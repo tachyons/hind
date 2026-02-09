@@ -20,6 +20,7 @@ module Hind
         @constants = {}   # {qualified_name => {node:, scope:, file:, range_id:, result_set_id:, value:}}
         @references = {}  # {qualified_name => [{file:, range_id:, document_id:}, ...]}
         @ranges = {}      # {file_path => [range_ids]}
+        @range_cache = {} # {file_path => {[start_line, start_col, end_line, end_col] => range_id}}
         @result_sets = {} # {qualified_name => result_set_id}
         @project_id = nil
       end
@@ -66,9 +67,21 @@ module Hind
         }
       end
 
-      def add_range(file_path, range_id)
+      def add_range(file_path, range_id, location = nil)
         @ranges[file_path] ||= []
         @ranges[file_path] << range_id
+
+        if location
+          @range_cache[file_path] ||= {}
+          coords = [location.start_line, location.start_column, location.end_line, location.end_column]
+          @range_cache[file_path][coords] = range_id
+        end
+      end
+
+      def find_range_id(file_path, location)
+        return nil unless @range_cache[file_path] && location
+        coords = [location.start_line, location.start_column, location.end_line, location.end_column]
+        @range_cache[file_path][coords]
       end
 
       def has_declaration?(qualified_name)

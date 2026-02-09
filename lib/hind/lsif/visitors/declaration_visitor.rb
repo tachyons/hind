@@ -14,10 +14,14 @@ module Hind
       def visit_class_node(node)
         @current_scope.push(node.constant_path.slice)
         class_name = current_scope_name
+        target_node = node.constant_path
+        target_node = target_node.child while target_node.is_a?(Prism::ConstantPathNode)
+
         @generator.register_class_declaration({
           type: :class,
           name: class_name,
           node: node,
+          range_location: target_node.location,
           scope: @current_scope[0..-2].join('::'),
           superclass: node.superclass&.slice
         })
@@ -28,10 +32,14 @@ module Hind
       def visit_module_node(node)
         @current_scope.push(node.constant_path.slice)
         module_name = current_scope_name
+        target_node = node.constant_path
+        target_node = target_node.child while target_node.is_a?(Prism::ConstantPathNode)
+
         @generator.register_module_declaration({
           type: :module,
           name: module_name,
           node: node,
+          range_location: target_node.location,
           scope: @current_scope[0..-2].join('::')
         })
         super
