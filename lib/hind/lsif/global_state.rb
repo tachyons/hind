@@ -23,6 +23,7 @@ module Hind
         @ranges = {}      # {file_path => [range_ids]}
         @range_cache = {} # {file_path => {[start_line, start_col, end_line, end_col] => range_id}}
         @result_sets = {} # {qualified_name => result_set_id}
+        @ancestors = {}   # {qualified_name => [{name:, type:}]}
         @project_id = nil
       end
 
@@ -62,6 +63,11 @@ module Hind
       def add_method(qualified_name, data)
         @methods[qualified_name] = data
         @result_sets[qualified_name] = data[:result_set_id] if data[:result_set_id]
+      end
+
+      def add_ancestor(qualified_name, mixed_in_module, type)
+        @ancestors[qualified_name] ||= []
+        @ancestors[qualified_name] << { name: mixed_in_module, type: type }
       end
 
       def add_reference(qualified_name, file_path, range_id, document_id)
@@ -124,31 +130,38 @@ module Hind
       def find_declaration(name, current_scope)
         # Handle both constants (::) and methods (#)
         is_method = name.start_with?('#')
-        
-        # First check if the name exists exactly as provided
-        return name if has_declaration?(name)
-
-        return nil unless current_scope && !current_scope.empty?
-
-        # Try with the full current scope
         sep = is_method ? '' : '::'
-        qualified_name = "#{current_scope}#{sep}#{name}"
+
+        # 1. Lexical Scope search
+        # Try full current scope
+        qualified_name = current_scope.empty? ? name : "#{current_scope}#{sep}#{name}"
+        # Strip leading # if simple name
+        qualified_name = name if current_scope.empty? && is_method
         return qualified_name if has_declaration?(qualified_name)
 
-        # Try with parent scopes by progressively removing the innermost scope
+        # 2. Ancestor chain search for current scope
+        if !current_scope.empty?
+          found = resolve_in_ancestors(name, current_scope, seen: Set.new)
+          return found if found
+        end
+
+        # 3. Parent Lexical Scopes
         scope_parts = current_scope.split('::')
         while scope_parts.size > 0
           scope_parts.pop
           prefix = scope_parts.join('::')
 
           qualified_name = prefix.empty? ? name : "#{prefix}#{sep}#{name}"
-          # Strip leading # if we ended up with just "#foo" (simple name)
           qualified_name = name if prefix.empty? && is_method
-          
           return qualified_name if has_declaration?(qualified_name)
+
+          # Search ancestors of the parent scope too
+          if !prefix.empty?
+            found = resolve_in_ancestors(name, prefix, seen: Set.new)
+            return found if found
+          end
         end
 
-        # Not found in any scope
         nil
       end
 
@@ -265,6 +278,33 @@ module Hind
 
         # Rule 3: Fall back to the first definition
         definitions.first
+      end
+
+      private
+
+      def resolve_in_ancestors(name, scope, seen:)
+        return nil if seen.include?(scope)
+        seen.add(scope)
+
+        is_method = name.start_with?('#')
+        sep = is_method ? '' : '::'
+
+        # Check this scope's ancestors
+        ancestors = @ancestors[scope] || []
+        ancestors.each do |ancestor|
+          mixed_in = ancestor[:name]
+          
+          # Try absolute name first (if it's already qualified)
+          qualified = "#{mixed_in}#{sep}#{name}"
+          qualified = name if mixed_in.empty? && is_method
+          return qualified if has_declaration?(qualified)
+
+          # Recurse into mixed_in's ancestors
+          found = resolve_in_ancestors(name, mixed_in, seen: seen)
+          return found if found
+        end
+
+        nil
       end
     end
   end

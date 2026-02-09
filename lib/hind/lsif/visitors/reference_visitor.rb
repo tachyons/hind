@@ -67,25 +67,67 @@ module Hind
 
       def visit_call_node(node)
         # Speculative resolution for method calls
-        method_name = node.name.to_s
-        
-        # Try both qualified and simple name
-        # We search for #method_name
-        found_name = GlobalState.instance.find_declaration("##{method_name}", current_scope_name)
-        
-        if found_name
-          loc = node.message_loc || node.location
-          @generator.register_reference({
-            type: :method,
-            name: found_name,
-            node: node,
-            location: loc # Use just the message/method name location for the reference range
-          })
-        end
+        register_method_call_reference(node)
+        super
+      end
+
+      def visit_call_operator_write_node(node)
+        # Handle self.age += 1
+        # This involves both a getter (age) and a setter (age=)
+        register_method_call_reference(node, name_override: node.read_name.to_s)
+        register_method_call_reference(node, name_override: node.write_name.to_s)
+        super
+      end
+
+      def visit_call_and_write_node(node)
+        register_method_call_reference(node, name_override: node.read_name.to_s)
+        register_method_call_reference(node, name_override: node.write_name.to_s)
+        super
+      end
+
+      def visit_call_or_write_node(node)
+        register_method_call_reference(node, name_override: node.read_name.to_s)
+        register_method_call_reference(node, name_override: node.write_name.to_s)
+        super
+      end
+
+      def visit_index_operator_write_node(node)
+        # Handle obj[key] += val
+        register_method_call_reference(node, name_override: "[]")
+        register_method_call_reference(node, name_override: "[]=")
+        super
+      end
+
+      def visit_index_and_write_node(node)
+        register_method_call_reference(node, name_override: "[]")
+        register_method_call_reference(node, name_override: "[]=")
+        super
+      end
+
+      def visit_index_or_write_node(node)
+        register_method_call_reference(node, name_override: "[]")
+        register_method_call_reference(node, name_override: "[]=")
         super
       end
 
       private
+
+      def register_method_call_reference(node, name_override: nil)
+        method_name = name_override || node.name.to_s
+        
+        # Try finding #method_name in current scope
+        found_name = GlobalState.instance.find_declaration("##{method_name}", current_scope_name)
+        
+        if found_name
+          loc = node.respond_to?(:message_loc) ? (node.message_loc || node.location) : node.location
+          @generator.register_reference({
+            type: :method,
+            name: found_name,
+            node: node,
+            location: loc
+          })
+        end
+      end
 
       def scip_name(name)
         # Basic unescaping to match what we store in GlobalState keys if needed

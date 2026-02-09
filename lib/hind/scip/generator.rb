@@ -281,66 +281,134 @@ module Hind
 
         def visit_call_node(node)
           # Handle attr_accessor, attr_reader, attr_writer
-          if node.receiver.nil? && %w[attr_reader attr_writer attr_accessor].include?(node.name.to_s)
-            helpers = node.arguments&.arguments || []
-            helpers.each do |arg|
-              next unless arg.is_a?(Prism::SymbolNode)
-              
-              name = arg.value
-              if %w[attr_reader attr_accessor].include?(node.name.to_s)
-                # Getter
-                getter_name = scip_name(name)
-                qualified_name = "#{current_scope_name}##{name}"
-                suffix = @current_scope.empty? ? '' : '#'
-                symbol = "#{@package_prefix}#{@current_scope.join("#")}#{suffix}#{getter_name}."
-
-                if @mode == :index
-                  GlobalState.instance.add_symbol(qualified_name, symbol)
-                  GlobalState.instance.add_symbol("##{name}", symbol)
-                else
-                  range = [arg.location.start_line - 1, arg.location.start_column, arg.location.end_column]
-                  @occurrences << Occurrence.new(range: range, symbol: symbol, symbol_roles: 1, syntax_kind: SyntaxKind::Identifier)
-                  unless GlobalState.instance.emitted?(symbol)
-                    @symbols << SymbolInformation.new(symbol: symbol, documentation: ["attr_reader #{name}"], kind: SymbolInformation::Kind::Method)
-                    GlobalState.instance.mark_emitted(symbol)
-                  end
-                end
-              end
-
-              if %w[attr_writer attr_accessor].include?(node.name.to_s)
-                # Setter
-                setter_name = "#{name}="
-                escaped_setter = scip_name(setter_name)
-                qualified_name = "#{current_scope_name}##{setter_name}"
-                suffix = @current_scope.empty? ? '' : '#'
-                symbol = "#{@package_prefix}#{@current_scope.join("#")}#{suffix}#{escaped_setter}."
-
-                if @mode == :index
-                  GlobalState.instance.add_symbol(qualified_name, symbol)
-                  GlobalState.instance.add_symbol("##{setter_name}", symbol)
-                else
-                  range = [arg.location.start_line - 1, arg.location.start_column, arg.location.end_column]
-                  @occurrences << Occurrence.new(range: range, symbol: symbol, symbol_roles: 1, syntax_kind: SyntaxKind::Identifier)
-                  unless GlobalState.instance.emitted?(symbol)
-                    @symbols << SymbolInformation.new(symbol: symbol, documentation: ["attr_writer #{name}"], kind: SymbolInformation::Kind::Method)
-                    GlobalState.instance.mark_emitted(symbol)
-                  end
-                end
-              end
-            end
-          end
+          index_attribute_helpers(node)
+          index_ancestor_helpers(node)
 
           return super if @mode == :index
 
           # Skip common methods
           return super if %w[new puts p print].include?(node.name.to_s)
 
+          register_scip_call_reference(node)
+          super
+        end
+
+        def visit_call_operator_write_node(node)
+          return super if @mode == :index
+          register_scip_call_reference(node, name_override: node.read_name.to_s)
+          register_scip_call_reference(node, name_override: node.write_name.to_s)
+          super
+        end
+
+        def visit_call_and_write_node(node)
+          return super if @mode == :index
+          register_scip_call_reference(node, name_override: node.read_name.to_s)
+          register_scip_call_reference(node, name_override: node.write_name.to_s)
+          super
+        end
+
+        def visit_call_or_write_node(node)
+          return super if @mode == :index
+          register_scip_call_reference(node, name_override: node.read_name.to_s)
+          register_scip_call_reference(node, name_override: node.write_name.to_s)
+          super
+        end
+
+        def visit_index_operator_write_node(node)
+          return super if @mode == :index
+          register_scip_call_reference(node, name_override: "[]")
+          register_scip_call_reference(node, name_override: "[]=")
+          super
+        end
+
+        def visit_index_and_write_node(node)
+          return super if @mode == :index
+          register_scip_call_reference(node, name_override: "[]")
+          register_scip_call_reference(node, name_override: "[]=")
+          super
+        end
+
+        def visit_index_or_write_node(node)
+          return super if @mode == :index
+          register_scip_call_reference(node, name_override: "[]")
+          register_scip_call_reference(node, name_override: "[]=")
+          super
+        end
+
+        private
+
+        def index_attribute_helpers(node)
+          return unless node.receiver.nil? && %w[attr_reader attr_writer attr_accessor].include?(node.name.to_s)
+          
+          helpers = node.arguments&.arguments || []
+          helpers.each do |arg|
+            next unless arg.is_a?(Prism::SymbolNode)
+            
+            name = arg.value
+            if %w[attr_reader attr_accessor].include?(node.name.to_s)
+              # Getter
+              getter_name = scip_name(name)
+              qualified_name = "#{current_scope_name}##{name}"
+              suffix = @current_scope.empty? ? '' : '#'
+              symbol = "#{@package_prefix}#{@current_scope.join("#")}#{suffix}#{getter_name}."
+
+              if @mode == :index
+                GlobalState.instance.add_symbol(qualified_name, symbol)
+                GlobalState.instance.add_symbol("##{name}", symbol)
+              else
+                range = [arg.location.start_line - 1, arg.location.start_column, arg.location.end_column]
+                @occurrences << Occurrence.new(range: range, symbol: symbol, symbol_roles: 1, syntax_kind: SyntaxKind::Identifier)
+                unless GlobalState.instance.emitted?(symbol)
+                  @symbols << SymbolInformation.new(symbol: symbol, documentation: ["attr_reader #{name}"], kind: SymbolInformation::Kind::Method)
+                  GlobalState.instance.mark_emitted(symbol)
+                end
+              end
+            end
+
+            if %w[attr_writer attr_accessor].include?(node.name.to_s)
+              # Setter
+              setter_name = "#{name}="
+              escaped_setter = scip_name(setter_name)
+              qualified_name = "#{current_scope_name}##{setter_name}"
+              suffix = @current_scope.empty? ? '' : '#'
+              symbol = "#{@package_prefix}#{@current_scope.join("#")}#{suffix}#{escaped_setter}."
+
+              if @mode == :index
+                GlobalState.instance.add_symbol(qualified_name, symbol)
+                GlobalState.instance.add_symbol("##{setter_name}", symbol)
+              else
+                range = [arg.location.start_line - 1, arg.location.start_column, arg.location.end_column]
+                @occurrences << Occurrence.new(range: range, symbol: symbol, symbol_roles: 1, syntax_kind: SyntaxKind::Identifier)
+                unless GlobalState.instance.emitted?(symbol)
+                  @symbols << SymbolInformation.new(symbol: symbol, documentation: ["attr_writer #{name}"], kind: SymbolInformation::Kind::Method)
+                  GlobalState.instance.mark_emitted(symbol)
+                end
+              end
+            end
+          end
+        end
+
+        def index_ancestor_helpers(node)
+          return unless node.receiver.nil? && %w[include extend prepend].include?(node.name.to_s)
+          
+          modules = node.arguments&.arguments || []
+          modules.each do |mod_node|
+            next unless mod_node.is_a?(Prism::ConstantReadNode) || mod_node.is_a?(Prism::ConstantPathNode)
+            
+            mixed_in = mod_node.slice
+            GlobalState.instance.add_ancestor(current_scope_name, mixed_in)
+          end
+        end
+
+        def register_scip_call_reference(node, name_override: nil)
+          method_name = name_override || node.name.to_s
+          
           # Speculative resolution
-          symbol = GlobalState.instance.find_symbol("#{current_scope_name}##{node.name}", '') ||
-            GlobalState.instance.find_symbol("##{node.name}", '')
+          symbol = GlobalState.instance.find_symbol("#{current_scope_name}##{method_name}", '') ||
+            GlobalState.instance.find_symbol("##{method_name}", '')
 
           if symbol
-            loc = node.message_loc || node.location
+            loc = node.respond_to?(:message_loc) ? (node.message_loc || node.location) : node.location
             range = [
               loc.start_line - 1,
               loc.start_column,
@@ -354,7 +422,6 @@ module Hind
               syntax_kind: SyntaxKind::Identifier
             )
           end
-          super
         end
 
         private

@@ -104,6 +104,18 @@ module Hind
             end
           end
         end
+
+        # Handle include, extend, prepend
+        if node.receiver.nil? && %w[include extend prepend].include?(node.name.to_s)
+          modules = node.arguments&.arguments || []
+          modules.each do |mod_node|
+            # Simplified: only handle simple constant names or paths
+            next unless mod_node.is_a?(Prism::ConstantReadNode) || mod_node.is_a?(Prism::ConstantPathNode)
+            
+            mixed_in = mod_node.slice
+            GlobalState.instance.add_ancestor(current_scope_name, mixed_in, node.name.to_sym)
+          end
+        end
         super
       end
 
