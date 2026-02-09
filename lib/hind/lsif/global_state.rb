@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'singleton'
 
 module Hind
@@ -26,7 +27,7 @@ module Hind
       def add_class(qualified_name, data)
         # Initialize if this is the first time we're seeing this class
         if !@classes.key?(qualified_name)
-          @classes[qualified_name] = { definitions: [] }
+          @classes[qualified_name] = {definitions: []}
         end
 
         # Add this definition to the list
@@ -40,7 +41,7 @@ module Hind
       def add_module(qualified_name, data)
         # Initialize if this is the first time we're seeing this module
         if !@modules.key?(qualified_name)
-          @modules[qualified_name] = { definitions: [] }
+          @modules[qualified_name] = {definitions: []}
         end
 
         # Add this definition to the list
@@ -72,8 +73,8 @@ module Hind
 
       def has_declaration?(qualified_name)
         @classes.key?(qualified_name) ||
-        @modules.key?(qualified_name) ||
-        @constants.key?(qualified_name)
+          @modules.key?(qualified_name) ||
+          @constants.key?(qualified_name)
       end
 
       def get_declaration(qualified_name)
@@ -205,7 +206,7 @@ module Hind
         # 3. Fall back to the first definition
 
         module_name = qualified_name.split('::').last
-        parent_path = qualified_name.split('::')[0..-2].join('/')
+        qualified_name.split('::')[0..-2].join('/')
 
         # Rule 1: Check for a file named directly after the module
         direct_match = definitions.find do |d|
@@ -225,7 +226,7 @@ module Hind
 
           # Check if the file is at the module's path root
           parts.size == qualified_name.split('::').size &&
-          parts.map(&:downcase).join('/') == qualified_name.gsub('::', '/').gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
+            parts.map(&:downcase).join('/') == qualified_name.gsub('::', '/').gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
         end
 
         return root_match if root_match

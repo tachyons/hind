@@ -84,7 +84,7 @@ module Hind
     def scip(dir = options[:directory] || '.')
       validate_directory(dir)
       validate_output_file(options[:output], options[:force])
-      
+
       files = find_files(dir, options[:glob], options[:exclude])
       abort "No files found matching pattern '#{options[:glob]}' in #{dir}" if files.empty?
 
@@ -92,7 +92,7 @@ module Hind
 
       generator = Hind::SCIP::Generator.new(File.expand_path(dir))
       index = generator.execute(files)
-      
+
       File.write(options[:output], index.to_proto, mode: 'wb')
       say "SCIP index written to #{options[:output]}", :green
     end
@@ -143,7 +143,7 @@ module Hind
     def find_files(directory, glob, exclude_patterns)
       pattern = File.join(directory, glob)
       absolute_directory = File.expand_path(directory)
-      
+
       files = Dir.glob(pattern).map do |file|
         # Return relative path to the directory for indexing
         Pathname.new(File.expand_path(file)).relative_path_from(Pathname.new(absolute_directory)).to_s

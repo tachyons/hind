@@ -1,6 +1,6 @@
 module Mixin
   def mixin_method
-    "mixin"
+    'mixin'
   end
 end
 

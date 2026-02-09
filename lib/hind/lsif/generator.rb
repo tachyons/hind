@@ -39,14 +39,14 @@ module Hind
         # We need to ensure metadata/project vertices are the very first ones.
         # If we collect declarations first, we might emit vertices.
         # So we should initialize project first.
-        
+
         unless @initial_data_emitted
-           initialize_project
-           @initial_data_emitted = true
-           # Ensure these are at the start of @lsif_data
-           # specific logic: if we just added them, they are at the end (idx 0 if empty)
-           # but if we called collect_declarations separately?
-           # Actually, execute is the main entry point. @lsif_data is empty approx.
+          initialize_project
+          @initial_data_emitted = true
+          # Ensure these are at the start of @lsif_data
+          # specific logic: if we just added them, they are at the end (idx 0 if empty)
+          # but if we called collect_declarations separately?
+          # Actually, execute is the main entry point. @lsif_data is empty approx.
         end
 
         # First pass: Declarations
@@ -54,7 +54,7 @@ module Hind
           @document_id = nil # Reset for each file
           absolute_path = File.join(@metadata[:projectRoot], file)
           next unless File.exist?(absolute_path)
-          
+
           source = File.read(absolute_path)
           collect_file_declarations(source, file)
         end
@@ -64,24 +64,24 @@ module Hind
           @document_id = nil # Reset for each file
           absolute_path = File.join(@metadata[:projectRoot], file)
           next unless File.exist?(absolute_path)
-          
+
           source = File.read(absolute_path)
           process_file(content: source, uri: file)
         end
-        
+
         finalize_document_state
-        
+
         @lsif_data
       end
 
       def collect_file_declarations(content, uri)
         @current_uri = uri
         result = Prism.parse(content)
-        
+
         declaration_visitor = DeclarationVisitor.new(self, uri)
         result.value.accept(declaration_visitor)
-        
-        { lsif_data: @lsif_data - @initial_data }
+
+        {lsif_data: @lsif_data - @initial_data}
       ensure
         @current_uri = nil
       end
@@ -91,17 +91,18 @@ module Hind
         setup_document if @document_id.nil? || @document_ids[uri].nil?
         @document_id = @document_ids[uri]
         @current_document_id = @document_id
-        
+
         result = Prism.parse(content)
-        
+
         reference_visitor = ReferenceVisitor.new(self, uri)
         result.value.accept(reference_visitor)
-        
+
         finalize_document_state
         @lsif_data
       ensure
         @current_uri = nil
       end
+
       def get_initial_data
         @initial_data
       end
@@ -245,7 +246,7 @@ module Hind
       private
 
       def initialize_project
-        metadata_vertex = emit_vertex('metaData', {
+        emit_vertex('metaData', {
           version: LSIF_VERSION,
           projectRoot: path_to_uri(@metadata[:projectRoot]),
           positionEncoding: 'utf-16',

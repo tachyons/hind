@@ -1,6 +1,6 @@
 class Basic
   def hello
-    puts "Hello"
+    puts 'Hello'
   end
 end
 

@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module MultiFile
   class B
     def use_a

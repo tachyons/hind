@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Hind
   module LSIF
     class DeclarationVisitor < Prism::Visitor

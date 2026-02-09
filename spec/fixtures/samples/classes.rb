@@ -1,13 +1,13 @@
 module Wrapper
   class Parent
     def greet
-      "Parent"
+      'Parent'
     end
   end
 
   class Child < Parent
     def greet
-      super + "Child"
+      super + 'Child'
     end
   end
 end
